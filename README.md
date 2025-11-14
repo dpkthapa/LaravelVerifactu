@@ -1,4 +1,4 @@
-# 🚀 Laravel Verifactu - Sistema de facturación electrónica
+# Laravel Verifactu - Sistema de facturación electrónica
 
 **Paquete Laravel 10/11/12 para gestión y registro de facturación electrónica VeriFactu**
 
@@ -13,20 +13,20 @@
 
 ---
 
-## ✨ Características principales
+## Características principales
 
-- 📄 Modelos Eloquent para invoices, breakdowns y recipients
-- 🏷️ Enum types para campos fiscales (invoice type, tax type, regime, etc.)
-- 🛠️ Helpers para operaciones de fecha, string y hash
-- 🏛️ Servicio AEAT client (configurable e inyectable)
-- ✅ Form Requests para validación
-- 🔄 API Resources para respuestas RESTful
-- 🧪 Factories y tests unitarios para todos los componentes core
-- 🔌 Listo para extensión y uso en producción
+- Modelos Eloquent para invoices, breakdowns y recipients
+- Enum types para campos fiscales (invoice type, tax type, regime, etc.)
+- Helpers para operaciones de fecha, string y hash
+- Servicio AEAT client (configurable e inyectable)
+- Form Requests para validación
+- API Resources para respuestas RESTful
+- Factories y tests unitarios para todos los componentes core
+- Listo para extensión y uso en producción
 
 ---
 
-## 📦 Instalación
+## Instalación
 
 ```bash
 composer require squareetlabs/laravel-verifactu
@@ -41,7 +41,7 @@ php artisan migrate
 
 ---
 
-## ⚙️ Configuración
+## Configuración
 
 Edita tu archivo `.env` o `config/verifactu.php` según tus necesidades:
 
@@ -59,7 +59,7 @@ return [
 
 ---
 
-## 🚀 Uso rápido
+## Uso rápido
 
 ### Crear una Invoice (Ejemplo de Controller)
 
@@ -80,7 +80,7 @@ public function store(StoreInvoiceRequest $request)
 
 ---
 
-## 🧾 Ejemplos de tipos de Invoice
+## Ejemplos de tipos de Invoice
 
 A continuación, ejemplos de cómo crear cada tipo de invoice usando el modelo y enums:
 
@@ -153,11 +153,11 @@ $invoice = Invoice::create([
 ]);
 ```
 
-> ⚠️ **Nota:** Para facturas rectificativas y sustitutivas, si implementas los campos y relaciones adicionales (como facturas rectificadas/sustituidas, tipo de rectificación, importe de rectificación), deberás añadirlos en el array de creación.
+> **Nota:** Para facturas rectificativas y sustitutivas, si implementas los campos y relaciones adicionales (como facturas rectificadas/sustituidas, tipo de rectificación, importe de rectificación), deberás añadirlos en el array de creación.
 
 ---
 
-## 📤 Envío de Invoice a AEAT (Ejemplo de Controller)
+## Envío de Invoice a AEAT (Ejemplo de Controller)
 
 ```php
 use Illuminate\Http\Request;
@@ -176,15 +176,15 @@ class InvoiceAeatController extends Controller
 }
 ```
 
-> 🔒 **Nota:** Protege este endpoint con autenticación/autorización adecuada.
+> **Nota:** Protege este endpoint con autenticación/autorización adecuada.
 > 
-> 📄 El resultado incluirá el XML enviado y recibido, útil para depuración.
+> El resultado incluirá el XML enviado y recibido, útil para depuración.
 > 
-> ❌ Si el certificado no es válido o hay error de validación, el array tendrá 'status' => 'error' y 'message'.
+> Si el certificado no es válido o hay error de validación, el array tendrá 'status' => 'error' y 'message'.
 
 ---
 
-## 🧩 Validación y creación de Breakdown (Ejemplo de Controller)
+## Validación y creación de Breakdown (Ejemplo de Controller)
 
 ```php
 use Squareetlabs\VeriFactu\Http\Requests\StoreBreakdownRequest;
@@ -199,7 +199,7 @@ public function storeBreakdown(StoreBreakdownRequest $request)
 
 ---
 
-## 🛠️ Uso de Helpers
+## Uso de Helpers
 
 ```php
 use Squareetlabs\VeriFactu\Helpers\DateTimeHelper;
@@ -222,9 +222,9 @@ $hash = HashHelper::generateInvoiceHash([
 
 ---
 
-## ⚡ Uso avanzado
+## Uso avanzado
 
-### 📢 Integración de eventos y listeners
+### Integración de eventos y listeners
 
 Puedes disparar eventos cuando se crean, actualizan o envían invoices a AEAT. Ejemplo:
 
@@ -285,7 +285,7 @@ protected $listen = [
 
 ---
 
-### 🔐 Políticas de autorización
+### Políticas de autorización
 
 Puedes restringir el acceso a invoices usando policies de Laravel:
 
@@ -330,7 +330,7 @@ public function update(Request $request, Invoice $invoice)
 
 ---
 
-### 📣 Integración de notificaciones
+### Integración de notificaciones
 
 Puedes notificar a usuarios o admins cuando una invoice se envía o falla:
 
@@ -369,7 +369,7 @@ $user->notify(new \App\Notifications\InvoiceSentNotification($invoice));
 
 ---
 
-### 🕒 Integración con colas (queues)
+### Integración con colas (queues)
 
 Puedes enviar invoices a AEAT de forma asíncrona usando colas:
 
@@ -400,7 +400,7 @@ php artisan queue:work
 
 ---
 
-### 📝 Auditoría
+### Auditoría
 
 Puedes usar paquetes como [owen-it/laravel-auditing](https://github.com/owen-it/laravel-auditing) para auditar cambios en invoices:
 
@@ -425,7 +425,7 @@ Puedes usar paquetes como [owen-it/laravel-auditing](https://github.com/owen-it/
 
 ---
 
-## 🧪 Testing
+## Testing
 
 Ejecuta todos los tests unitarios:
 
@@ -437,7 +437,7 @@ vendor/bin/phpunit
 
 ---
 
-## 🤝 Contribuir
+## Contribuir
 
 Las contribuciones son bienvenidas. Por favor:
 
@@ -447,20 +447,20 @@ Las contribuciones son bienvenidas. Por favor:
 4. Push a la rama
 5. Abre un Pull Request
 
-## 📄 Licencia
+## Licencia
 
 Este paquete es open-source bajo la [Licencia MIT](LICENSE.md).
 
-## 🆘 Soporte
+## Soporte
 
 - **Documentación técnica**: https://sede.agenciatributaria.gob.es/Sede/iva/sistemas-informaticos-facturacion-verifactu/informacion-tecnica.html
 - **Issues**: https://github.com/squareetlabs/LaravelVerifactu/issues
 
-## 👥 Autores
+## Autores
 
 - **Alberto Rial Barreiro** - [SquareetLabs](https://www.squareet.com)
 - **Jacobo Cantorna Cigarrán** - [SquareetLabs](https://www.squareet.com)
 
 ---
 
-⭐ Si este paquete te ha sido útil, ¡no olvides darle una estrella en GitHub!
+Si este paquete te ha sido útil, ¡no olvides darle una estrella en GitHub!
