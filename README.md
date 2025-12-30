@@ -48,15 +48,62 @@ Edita tu archivo `.env` o `config/verifactu.php` según tus necesidades:
 ```php
 return [
     'enabled' => true,
+    'system_id' => env('VERIFACTU_SYSTEM_ID', '01'),
     'default_currency' => 'EUR',
     'issuer' => [
         'name' => env('VERIFACTU_ISSUER_NAME', ''),
         'vat' => env('VERIFACTU_ISSUER_VAT', ''),
     ],
     
+    // Modo Verifactu (true) o NO Verifactu/Requerimiento (false)
+    'verifactu_mode' => env('VERIFACTU_MODE', true),
+    
+    // Parámetros del Sistema Informático
+    'tipo_uso_posible_solo_verifactu' => env('VERIFACTU_TIPO_USO_SOLO_VF', 'N'),
+    'tipo_uso_posible_multi_ot' => env('VERIFACTU_TIPO_USO_MULTI_OT', 'S'),
+    'indicador_multiples_ot' => env('VERIFACTU_INDICADOR_MULTI_OT', 'N'),
+    
     // Define si se cargan las migraciones del paquete (por defecto false)
     'load_migrations' => env('VERIFACTU_LOAD_MIGRATIONS', false),
 ];
+```
+
+### Modos de facturación
+
+Este paquete soporta dos modos de facturación:
+
+#### 1. Modo VERIFACTU (por defecto)
+El modo estándar de facturación electrónica.
+
+```env
+VERIFACTU_MODE=true
+```
+
+#### 2. Modo NO VERIFACTU (Requerimiento)
+Para facturas bajo requerimiento de la Agencia Tributaria. Requiere un `RefRequerimiento` proporcionado por Hacienda.
+
+```env
+VERIFACTU_MODE=false
+```
+
+El paquete ajustará automáticamente las URLs del servicio SOAP según el modo configurado:
+- **Producción VERIFACTU**: `https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP`
+- **Producción NO VERIFACTU**: `https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP`
+- **Pruebas VERIFACTU**: `https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP`
+- **Pruebas NO VERIFACTU**: `https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP`
+
+### Parámetros del Sistema Informático
+
+Configura los parámetros según las características de tu sistema:
+
+- **tipo_uso_posible_solo_verifactu**: Indica si el sistema solo puede usarse en modo VERIFACTU (`S`) o también en modo NO VERIFACTU (`N`)
+- **tipo_uso_posible_multi_ot**: Indica si el sistema puede usarse con múltiples obligados tributarios (`S` o `N`)
+- **indicador_multiples_ot**: Indica si existen múltiples obligados tributarios en el sistema (`S` o `N`)
+
+```env
+VERIFACTU_TIPO_USO_SOLO_VF=N
+VERIFACTU_TIPO_USO_MULTI_OT=S
+VERIFACTU_INDICADOR_MULTI_OT=N
 ```
 
 ---
@@ -189,6 +236,8 @@ $invoice = Invoice::create([
 
 ### Factura rectificativa (R1)
 ```php
+use Squareetlabs\VeriFactu\Enums\RectificativeType;
+
 $invoice = Invoice::create([
     'number' => 'INV-RECT-001',
     'date' => '2024-07-01',
@@ -200,7 +249,52 @@ $invoice = Invoice::create([
     'tax' => 25.20,
     'total' => 145.20,
     'type' => InvoiceType::RECTIFICATIVE_R1,
-    // Puedes añadir aquí la relación con facturas rectificadas y el motivo si implementas la lógica
+    'rectificative_type' => 'S', // S=Sustitución, I=Diferencia
+    'rectified_invoices' => json_encode(['INV-001', 'INV-002']),
+    'rectification_amount' => json_encode(['base' => -50.00, 'tax' => -10.50, 'total' => -60.50]),
+]);
+```
+
+### Factura con encadenamiento blockchain
+```php
+// Primera factura de la cadena
+$firstInvoice = Invoice::create([
+    'number' => 'INV-001',
+    'date' => '2024-07-01',
+    'is_first_invoice' => true,
+    'amount' => 100.00,
+    'tax' => 21.00,
+    'total' => 121.00,
+    // ... otros campos
+]);
+
+// Segunda factura enlazada
+$secondInvoice = Invoice::create([
+    'number' => 'INV-002',
+    'date' => '2024-07-02',
+    'is_first_invoice' => false,
+    'previous_invoice_number' => 'INV-001',
+    'previous_invoice_date' => '2024-07-01',
+    'previous_invoice_hash' => $firstInvoice->hash,
+    'amount' => 150.00,
+    'tax' => 31.50,
+    'total' => 181.50,
+    // ... otros campos
+]);
+```
+
+### Subsanación (reenvío tras rechazo AEAT)
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-SUB-001',
+    'date' => '2024-07-01',
+    'is_subsanacion' => true,
+    'rejected_invoice_number' => 'INV-REJECTED-001',
+    'rejection_date' => '2024-06-30',
+    'amount' => 100.00,
+    'tax' => 21.00,
+    'total' => 121.00,
+    // ... otros campos
 ]);
 ```
 
@@ -252,6 +346,8 @@ public function storeBreakdown(StoreBreakdownRequest $request)
 
 ## Uso de Helpers
 
+### Helpers de fecha, string y hash
+
 ```php
 use Squareetlabs\VeriFactu\Helpers\DateTimeHelper;
 use Squareetlabs\VeriFactu\Helpers\StringHelper;
@@ -269,6 +365,69 @@ $hash = HashHelper::generateInvoiceHash([
     'previous_hash' => '',
     'generated_at' => '2024-01-01T12:00:00+01:00',
 ]);
+```
+
+### Generación de URL para códigos QR
+
+El paquete incluye un helper para generar las URLs necesarias para los códigos QR que deben incluirse en las facturas según la normativa VERIFACTU.
+
+```php
+use Squareetlabs\VeriFactu\Helpers\QrUrlHelper;
+use Squareetlabs\VeriFactu\Models\Invoice;
+
+// Obtener la factura
+$invoice = Invoice::find(1);
+
+// Generar URL para QR en modo VERIFACTU (producción)
+$qrUrl = QrUrlHelper::build(
+    $invoice, 
+    'B12345678',  // NIF del emisor
+    true,         // true = producción, false = pruebas
+    true          // true = VERIFACTU, false = NO VERIFACTU
+);
+
+// Resultado: https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR?nif=B12345678&numserie=FAC-001&fecha=15-01-2024&importe=121.00
+```
+
+El helper generará automáticamente la URL correcta según el entorno y modo:
+
+- **Producción VERIFACTU**: `https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR`
+- **Producción NO VERIFACTU**: `https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQRNoVerifactu`
+- **Pruebas VERIFACTU**: `https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR`
+- **Pruebas NO VERIFACTU**: `https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQRNoVerifactu`
+
+Si no proporcionas el parámetro `verifactuMode`, el helper usará el valor configurado en `config/verifactu.php`:
+
+```php
+// Usa la configuración por defecto del modo
+$qrUrl = QrUrlHelper::build($invoice, 'B12345678', true);
+```
+
+**Ejemplo en un controlador:**
+
+```php
+use Squareetlabs\VeriFactu\Helpers\QrUrlHelper;
+use Squareetlabs\VeriFactu\Models\Invoice;
+
+class InvoiceQrController extends Controller
+{
+    public function generateQr($invoiceId)
+    {
+        $invoice = Invoice::findOrFail($invoiceId);
+        $issuerVat = config('verifactu.issuer.vat');
+        $isProduction = app()->environment('production');
+        
+        $qrUrl = QrUrlHelper::build($invoice, $issuerVat, $isProduction);
+        
+        // Generar el código QR usando alguna librería (ej: SimpleSoftwareIO/simple-qrcode)
+        // $qrCode = QrCode::size(300)->generate($qrUrl);
+        
+        return response()->json([
+            'url' => $qrUrl,
+            // 'qr_image' => $qrCode
+        ]);
+    }
+}
 ```
 
 ---

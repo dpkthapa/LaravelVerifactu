@@ -66,6 +66,23 @@ class Invoice extends Model implements VeriFactuInvoice
         'operation_date',
         'tax_period',
         'correction_type',
+        // New fields from PR #8
+        'csv',
+        'previous_invoice_number',
+        'previous_invoice_date',
+        'previous_invoice_hash',
+        'is_first_invoice',
+        'rectificative_type',
+        'rectified_invoices',
+        'rectification_amount',
+        'is_subsanacion',
+        'rejected_invoice_number',
+        'rejection_date',
+        'numero_instalacion',
+        'aeat_estado_registro',
+        'aeat_codigo_error',
+        'aeat_descripcion_error',
+        'has_aeat_warnings',
     ];
 
     protected $casts = [
@@ -75,6 +92,14 @@ class Invoice extends Model implements VeriFactuInvoice
         'amount' => 'decimal:2',
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
+        // New casts from PR #8
+        'previous_invoice_date' => 'date',
+        'rejection_date' => 'date',
+        'is_first_invoice' => 'boolean',
+        'is_subsanacion' => 'boolean',
+        'has_aeat_warnings' => 'boolean',
+        'rectified_invoices' => 'array',
+        'rectification_amount' => 'array',
     ];
 
     public function breakdowns()

@@ -26,6 +26,7 @@ class Recipient extends Model implements VeriFactuRecipient
         'name',
         'tax_id',
         'country',
+        'id_type', // New field from PR #8 for foreign recipients
         // Otros campos relevantes
     ];
 

@@ -17,12 +17,14 @@ class AeatClient
     private ?string $certPassword;
     private Client $client;
     private bool $production;
+    private bool $verifactuMode;
 
-    public function __construct(string $certPath, ?string $certPassword = null, bool $production = false)
+    public function __construct(string $certPath, ?string $certPassword = null, bool $production = false, ?bool $verifactuMode = null)
     {
         $this->certPath = $certPath;
         $this->certPassword = $certPassword;
         $this->production = $production;
+        $this->verifactuMode = $verifactuMode ?? config('verifactu.verifactu_mode', true);
         $this->baseUri = $production
             ? 'https://www1.aeat.es'
             : 'https://prewww1.aeat.es';
@@ -258,13 +260,13 @@ class AeatClient
             'SistemaInformatico' => [
                 'NombreRazon' => $issuerName,
                 'NIF' => $issuerVat,
-                'NombreSistemaInformatico' => env('APP_NAME', 'LaravelVerifactu'),
-                'IdSistemaInformatico' => config('verifactu.system_id', '01'),
-                'Version' => '1.0',
-                'NumeroInstalacion' => '001',
-                'TipoUsoPosibleSoloVerifactu' => 'S',
-                'TipoUsoPosibleMultiOT' => 'N',
-                'IndicadorMultiplesOT' => 'N',
+                'NombreSistemaInformatico' => config('verifactu.sistema_informatico.name', 'LaravelVerifactu'),
+                'IdSistemaInformatico' => config('verifactu.sistema_informatico.id', 'LV'),
+                'Version' => config('verifactu.sistema_informatico.version', '1.0'),
+                'NumeroInstalacion' => config('verifactu.sistema_informatico.installation_number', '001'),
+                'TipoUsoPosibleSoloVerifactu' => config('verifactu.sistema_informatico.only_verifactu_capable', 'S'),
+                'TipoUsoPosibleMultiOT' => config('verifactu.sistema_informatico.multi_obligated_entities_capable', 'N'),
+                'IndicadorMultiplesOT' => config('verifactu.sistema_informatico.has_multiple_obligated_entities', 'N'),
             ],
             'FechaHoraHusoGenRegistro' => $ts,
             'TipoHuella' => '01',
@@ -300,9 +302,13 @@ class AeatClient
 
     protected function getSoapClient(): \SoapClient
     {
-        $wsdl = $this->production
-            ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP?wsdl'
-            : 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
+        if ($this->production) {
+            $wsdl = $this->verifactuMode
+                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP?wsdl'
+                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP?wsdl';
+        } else {
+            $wsdl = 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
+        }
 
         $options = [
             'local_cert' => $this->certPath,
@@ -330,9 +336,15 @@ class AeatClient
 
     private function performSoapCall(array $body, string $huella, string $numSerie, string $fechaExp, string $ts, ?array $previous): array
     {
-        $location = $this->production
-            ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
-            : 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP';
+        if ($this->production) {
+            $location = $this->verifactuMode
+                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
+                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
+        } else {
+            $location = $this->verifactuMode
+                ? 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
+                : 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
+        }
 
         try {
             $client = $this->getSoapClient();

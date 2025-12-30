@@ -2,11 +2,78 @@
 
 return [
     'enabled' => true,
-    'system_id' => env('VERIFACTU_SYSTEM_ID', '01'),
     'default_currency' => 'EUR',
+    
     'issuer' => [
         'name' => env('VERIFACTU_ISSUER_NAME', ''),
         'vat' => env('VERIFACTU_ISSUER_VAT', ''),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Verifactu Mode
+    |--------------------------------------------------------------------------
+    |
+    | Set to true for VERIFACTU mode or false for NO VERIFACTU (Requerimiento) mode.
+    | 
+    | VERIFACTU mode (true):
+    |   - Online invoice submission
+    |   - HTTPS certificate authentication
+    |   - No XAdES signature required
+    | 
+    | NO VERIFACTU mode (false):
+    |   - Submission upon requirement (RefRequerimiento needed)
+    |   - XAdES-EPES signature required
+    |   - Offline capable
+    |
+    */
+    'verifactu_mode' => env('VERIFACTU_MODE', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Computer System Information (Sistema Informático)
+    |--------------------------------------------------------------------------
+    |
+    | Information about the system that generates the invoices.
+    | Required by AEAT for VeriFactu compliance.
+    |
+    */
+    'sistema_informatico' => [
+        'name' => env('VERIFACTU_SYSTEM_NAME', 'LaravelVerifactu'),
+        'id' => env('VERIFACTU_SYSTEM_ID', 'LV'),
+        'version' => env('VERIFACTU_SYSTEM_VERSION', '1.0'),
+        'installation_number' => env('VERIFACTU_INSTALLATION_NUMBER', '001'),
+        
+        /*
+        |----------------------------------------------------------------------
+        | System Capability Parameters
+        |----------------------------------------------------------------------
+        |
+        | Define the system's capabilities according to AEAT requirements.
+        | Values must be 'S' (Yes) or 'N' (No) as per AEAT specification.
+        |
+        | - only_verifactu_capable: System can ONLY operate in VERIFACTU mode
+        | - multi_obligated_entities_capable: System supports multiple obligated entities
+        | - has_multiple_obligated_entities: Indicates if multiple entities currently exist
+        |
+        */
+        'only_verifactu_capable' => env('VERIFACTU_ONLY_VERIFACTU_CAPABLE', 'S'),
+        'multi_obligated_entities_capable' => env('VERIFACTU_MULTI_OT_CAPABLE', 'N'),
+        'has_multiple_obligated_entities' => env('VERIFACTU_HAS_MULTI_OT', 'N'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | AEAT Connection Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for connecting to AEAT web services.
+    |
+    */
+    'aeat' => [
+        'cert_path' => env('VERIFACTU_CERT_PATH', storage_path('certificates/aeat.pfx')),
+        'cert_password' => env('VERIFACTU_CERT_PASSWORD'),
+        'production' => env('VERIFACTU_PRODUCTION', false),
     ],
 
     /*
