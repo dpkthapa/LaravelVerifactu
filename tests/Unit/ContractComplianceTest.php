@@ -79,6 +79,22 @@ class ContractComplianceTest extends TestCase
             {
                 return 'Test';
             }
+            public function getOperationDate(): ?\Carbon\Carbon
+            {
+                return null;
+            }
+            public function getTaxPeriod(): ?string
+            {
+                return null;
+            }
+            public function getCorrectionType(): ?string
+            {
+                return null;
+            }
+            public function getExternalReference(): ?string
+            {
+                return null;
+            }
         };
 
         $this->assertInstanceOf(VeriFactuInvoice::class, $customInvoice);

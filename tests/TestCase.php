@@ -23,5 +23,8 @@ abstract class TestCase extends BaseTestCase
             'vat' => 'A00000000',
         ]);
         // Puedes añadir más configuración si es necesario
+        
+        // Cargar migraciones para tests
+        $app['config']->set('verifactu.load_migrations', true);
     }
 } 
