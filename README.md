@@ -22,6 +22,12 @@
 - Form Requests para validación
 - API Resources para respuestas RESTful
 - Factories y tests unitarios para todos los componentes core
+- **Modos duales**: VERIFACTU y NO VERIFACTU (Requerimiento)
+- **Helper QR**: Generación automática de URLs para códigos QR según modo y entorno
+- **Campos avanzados**: Encadenamiento blockchain, facturas rectificativas, subsanación
+- **Multi-tenant**: Soporte para múltiples instalaciones bajo el mismo NIF
+- **Clientes extranjeros**: Soporte para identificadores internacionales
+- **Estado AEAT**: Campos para tracking de respuestas y estado de registro
 - Listo para extensión y uso en producción
 
 ---
@@ -106,6 +112,56 @@ VERIFACTU_TIPO_USO_MULTI_OT=S
 VERIFACTU_INDICADOR_MULTI_OT=N
 ```
 
+### Variables de entorno disponibles
+
+Todas las opciones de configuración pueden establecerse mediante variables de entorno en tu archivo `.env`:
+
+```env
+# Configuración básica
+VERIFACTU_ISSUER_NAME="Mi Empresa S.L."
+VERIFACTU_ISSUER_VAT="B12345678"
+VERIFACTU_SYSTEM_ID="01"
+VERIFACTU_DEFAULT_CURRENCY="EUR"
+
+# Modo de facturación
+VERIFACTU_MODE=true                    # true = VERIFACTU, false = NO VERIFACTU
+
+# Parámetros del Sistema Informático
+VERIFACTU_TIPO_USO_SOLO_VF=N          # S = Solo VERIFACTU, N = Ambos modos
+VERIFACTU_TIPO_USO_MULTI_OT=S         # S = Múltiples OT, N = Un solo OT
+VERIFACTU_INDICADOR_MULTI_OT=N        # S = Existen múltiples OT, N = Un solo OT
+
+# Migraciones
+VERIFACTU_LOAD_MIGRATIONS=false        # true = Cargar migraciones del paquete
+```
+
+### Estructura de configuración completa
+
+El archivo `config/verifactu.php` incluye la siguiente estructura:
+
+```php
+return [
+    'enabled' => env('VERIFACTU_ENABLED', true),
+    'system_id' => env('VERIFACTU_SYSTEM_ID', '01'),
+    'default_currency' => env('VERIFACTU_DEFAULT_CURRENCY', 'EUR'),
+    
+    'issuer' => [
+        'name' => env('VERIFACTU_ISSUER_NAME', ''),
+        'vat' => env('VERIFACTU_ISSUER_VAT', ''),
+    ],
+    
+    'verifactu_mode' => env('VERIFACTU_MODE', true),
+    
+    'sistema_informatico' => [
+        'tipo_uso_posible_solo_verifactu' => env('VERIFACTU_TIPO_USO_SOLO_VF', 'N'),
+        'tipo_uso_posible_multi_ot' => env('VERIFACTU_TIPO_USO_MULTI_OT', 'S'),
+        'indicador_multiples_ot' => env('VERIFACTU_INDICADOR_MULTI_OT', 'N'),
+    ],
+    
+    'load_migrations' => env('VERIFACTU_LOAD_MIGRATIONS', false),
+];
+```
+
 ---
 
 ## Integración
@@ -177,6 +233,22 @@ public function store(StoreInvoiceRequest $request)
 ```
 
 ---
+
+## Tipos de Invoice disponibles
+
+El paquete soporta todos los tipos de factura según la normativa AEAT:
+
+| Tipo | Enum | Descripción |
+|------|------|-------------|
+| F1 | `InvoiceType::STANDARD` | Factura completa |
+| F2 | `InvoiceType::SIMPLIFIED` | Factura simplificada |
+| F3 | `InvoiceType::SUBSTITUTE` | Factura que sustituye a otra |
+| F4 | `InvoiceType::EXPORT` | Factura de exportación |
+| R1 | `InvoiceType::RECTIFICATIVE_R1` | Rectificativa por sustitución o diferencia |
+| R2 | `InvoiceType::RECTIFICATIVE_R2` | Rectificativa por anulación |
+| R3 | `InvoiceType::RECTIFICATIVE_R3` | Rectificativa por descuento |
+| R4 | `InvoiceType::RECTIFICATIVE_R4` | Rectificativa por incremento |
+| R5 | `InvoiceType::RECTIFICATIVE_R5` | Rectificativa por otros conceptos |
 
 ## Ejemplos de tipos de Invoice
 
@@ -255,6 +327,24 @@ $invoice = Invoice::create([
 ]);
 ```
 
+### Factura de exportación (F4)
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-EXP-001',
+    'date' => '2024-07-01',
+    'customer_name' => 'Foreign Customer Ltd',
+    'customer_tax_id' => null,
+    'customer_country' => 'GB',
+    'issuer_name' => 'Issuer S.A.',
+    'issuer_tax_id' => 'B87654321',
+    'amount' => 500.00,
+    'tax' => 0.00,  // Exportaciones exentas de IVA
+    'total' => 500.00,
+    'type' => InvoiceType::EXPORT,
+]);
+```
+
 ### Factura con encadenamiento blockchain
 ```php
 // Primera factura de la cadena
@@ -302,6 +392,342 @@ $invoice = Invoice::create([
 
 ---
 
+## Campos avanzados del modelo Invoice
+
+El modelo `Invoice` incluye campos avanzados para cumplir con todas las especificaciones AEAT:
+
+### Campos de encadenamiento blockchain
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-002',
+    'is_first_invoice' => false,                    // false si no es la primera
+    'previous_invoice_number' => 'INV-001',         // Número de factura anterior
+    'previous_invoice_date' => '2024-07-01',        // Fecha de factura anterior
+    'previous_invoice_hash' => 'ABC123...',          // Hash de factura anterior
+    // ... otros campos
+]);
+```
+
+### Campos de facturas rectificativas
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-RECT-001',
+    'type' => InvoiceType::RECTIFICATIVE_R1,
+    'rectificative_type' => 'I',                    // 'S' = Sustitución, 'I' = Diferencia
+    'rectified_invoices' => [                       // Array de facturas rectificadas
+        'INV-001',
+        'INV-002'
+    ],
+    'rectification_amount' => [                     // Importes de rectificación
+        'base' => -50.00,
+        'tax' => -10.50,
+        'total' => -60.50
+    ],
+    // ... otros campos
+]);
+```
+
+### Campos de subsanación
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-SUBS-001',
+    'is_subsanacion' => true,                       // Indica que es subsanación
+    'rejected_invoice_number' => 'INV-REJECTED-001', // Número de factura rechazada
+    'rejection_date' => '2024-06-30',              // Fecha de rechazo
+    // ... otros campos
+]);
+```
+
+### Campos multi-tenant (múltiples instalaciones)
+
+Si tu sistema gestiona múltiples instalaciones bajo el mismo NIF emisor:
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-001',
+    'numero_instalacion' => 'INST-001',            // Identificador de instalación
+    // ... otros campos
+]);
+```
+
+### Campos de estado de respuesta AEAT
+
+Después de enviar una factura a AEAT, puedes actualizar estos campos:
+
+```php
+$invoice->update([
+    'aeat_status' => 'ACEPTADA',                   // Estado de respuesta AEAT
+    'aeat_response_code' => '0',                   // Código de respuesta
+    'aeat_response_message' => 'Registro aceptado', // Mensaje de respuesta
+    'aeat_registration_date' => now(),            // Fecha de registro en AEAT
+    'aeat_csv' => 'CSV-123456789',                // CSV de registro
+    'has_aeat_warnings' => false,                 // Si tiene advertencias
+]);
+```
+
+### Campos adicionales
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-001',
+    'operation_date' => '2024-07-01',              // Fecha de operación (si difiere de date)
+    'tax_period' => '01',                         // Período fiscal (01, 02, 0A, etc.)
+    'external_reference' => 'REF-EXT-123',        // Referencia externa opcional
+    'description' => 'Descripción de la operación',
+    'status' => 'draft',                          // Estado interno: draft, sent, accepted, rejected
+    // ... otros campos
+]);
+```
+
+### Tabla de referencia rápida de campos
+
+#### Campos básicos
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `number` | string | Número/serie de factura |
+| `date` | date | Fecha de expedición |
+| `type` | InvoiceType enum | Tipo de factura (F1, F2, R1, etc.) |
+| `amount` | decimal | Base imponible |
+| `tax` | decimal | Importe de impuestos |
+| `total` | decimal | Importe total |
+
+#### Campos de cliente/emisor
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `customer_name` | string\|null | Nombre del cliente |
+| `customer_tax_id` | string\|null | NIF/CIF del cliente |
+| `customer_country` | string\|null | País del cliente (ISO) |
+| `issuer_name` | string | Nombre del emisor |
+| `issuer_tax_id` | string | NIF/CIF del emisor |
+| `issuer_country` | string | País del emisor (ISO) |
+
+#### Campos de encadenamiento blockchain
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `is_first_invoice` | boolean | Si es la primera factura de la cadena |
+| `previous_invoice_number` | string\|null | Número de factura anterior |
+| `previous_invoice_date` | date\|null | Fecha de factura anterior |
+| `previous_invoice_hash` | string\|null | Hash de factura anterior |
+| `hash` | string\|null | Hash de esta factura |
+
+#### Campos de facturas rectificativas
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `rectificative_type` | string\|null | 'S' = Sustitución, 'I' = Diferencia |
+| `rectified_invoices` | array | Array de números de facturas rectificadas |
+| `rectification_amount` | array | Importes de rectificación (base, tax, total) |
+
+#### Campos de subsanación
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `is_subsanacion` | boolean | Si es una subsanación |
+| `rejected_invoice_number` | string\|null | Número de factura rechazada |
+| `rejection_date` | date\|null | Fecha de rechazo |
+
+#### Campos multi-tenant
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `numero_instalacion` | string\|null | Identificador de instalación |
+
+#### Campos de estado AEAT
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `aeat_status` | string\|null | Estado: ACEPTADA, RECHAZADA, ENVIADA |
+| `aeat_response_code` | string\|null | Código de respuesta AEAT |
+| `aeat_response_message` | string\|null | Mensaje de respuesta |
+| `aeat_registration_date` | datetime\|null | Fecha de registro en AEAT |
+| `aeat_csv` | string\|null | CSV de registro |
+| `has_aeat_warnings` | boolean | Si tiene advertencias |
+
+#### Campos adicionales
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `operation_date` | date\|null | Fecha de operación (si difiere de date) |
+| `tax_period` | string\|null | Período fiscal (01, 02, 0A, etc.) |
+| `correction_type` | string\|null | Tipo de corrección |
+| `external_reference` | string\|null | Referencia externa |
+| `description` | string\|null | Descripción de la operación |
+| `status` | string | Estado interno (draft, sent, accepted, rejected) |
+| `csv` | string\|null | CSV interno |
+
+---
+
+## Ejemplos avanzados
+
+### Factura con cliente extranjero
+
+Para clientes extranjeros, usa el campo `id_type` en el modelo `Recipient`:
+
+```php
+use Squareetlabs\VeriFactu\Models\Invoice;
+use Squareetlabs\VeriFactu\Models\Recipient;
+use Squareetlabs\VeriFactu\Enums\ForeignIdType;
+
+$invoice = Invoice::create([
+    'number' => 'INV-INT-001',
+    'date' => '2024-07-01',
+    'customer_name' => 'Foreign Customer Ltd',
+    'customer_tax_id' => null,                     // Sin NIF para extranjeros
+    'customer_country' => 'GB',                    // Código ISO del país
+    // ... otros campos
+]);
+
+// Crear recipient con identificador extranjero
+$recipient = Recipient::create([
+    'invoice_id' => $invoice->id,
+    'name' => 'Foreign Customer Ltd',
+    'tax_id' => 'GB123456789',                     // VAT number del país
+    'country' => 'GB',
+    'id_type' => ForeignIdType::VAT_NUMBER,       // Tipo de identificador
+]);
+```
+
+Tipos de identificadores extranjeros disponibles:
+- `ForeignIdType::VAT_NUMBER` - Número de IVA
+- `ForeignIdType::PASSPORT` - Pasaporte
+- `ForeignIdType::OFFICIAL_ID` - Documento oficial de identidad
+- `ForeignIdType::RESIDENCE_CERTIFICATE` - Certificado de residencia
+- `ForeignIdType::OTHER` - Otro tipo
+
+### Factura rectificativa completa (por diferencia)
+
+```php
+use Squareetlabs\VeriFactu\Models\Invoice;
+use Squareetlabs\VeriFactu\Enums\InvoiceType;
+
+// Factura original
+$originalInvoice = Invoice::create([
+    'number' => 'INV-001',
+    'date' => '2024-07-01',
+    'amount' => 100.00,
+    'tax' => 21.00,
+    'total' => 121.00,
+    'type' => InvoiceType::STANDARD,
+    // ... otros campos
+]);
+
+// Factura rectificativa por diferencia
+$rectificativeInvoice = Invoice::create([
+    'number' => 'INV-RECT-001',
+    'date' => '2024-07-15',
+    'type' => InvoiceType::RECTIFICATIVE_R1,
+    'rectificative_type' => 'I',                   // I = Diferencia
+    'rectified_invoices' => ['INV-001'],          // Facturas rectificadas
+    'rectification_amount' => [
+        'base' => -20.00,                          // Diferencia en base
+        'tax' => -4.20,                            // Diferencia en impuesto
+        'total' => -24.20                          // Diferencia total
+    ],
+    'amount' => -20.00,                            // Importe negativo
+    'tax' => -4.20,
+    'total' => -24.20,
+    // ... otros campos
+]);
+```
+
+### Factura con múltiples instalaciones (multi-tenant)
+
+```php
+$invoice = Invoice::create([
+    'number' => 'INV-001',
+    'date' => '2024-07-01',
+    'numero_instalacion' => 'INST-001',            // Identificador de instalación
+    'issuer_name' => 'Empresa Principal S.A.',
+    'issuer_tax_id' => 'B12345678',
+    // ... otros campos
+]);
+
+// Otra factura de diferente instalación pero mismo emisor
+$invoice2 = Invoice::create([
+    'number' => 'INV-002',
+    'date' => '2024-07-01',
+    'numero_instalacion' => 'INST-002',           // Diferente instalación
+    'issuer_name' => 'Empresa Principal S.A.',
+    'issuer_tax_id' => 'B12345678',                // Mismo NIF emisor
+    // ... otros campos
+]);
+```
+
+### Cadena completa de facturas (blockchain)
+
+```php
+// Primera factura de la cadena
+$first = Invoice::create([
+    'number' => 'INV-001',
+    'date' => '2024-07-01',
+    'is_first_invoice' => true,
+    'amount' => 100.00,
+    'tax' => 21.00,
+    'total' => 121.00,
+    // ... otros campos
+]);
+
+// Calcular hash (se hace automáticamente si está configurado)
+$first->hash = HashHelper::generateInvoiceHash([...])['hash'];
+$first->save();
+
+// Segunda factura enlazada
+$second = Invoice::create([
+    'number' => 'INV-002',
+    'date' => '2024-07-02',
+    'is_first_invoice' => false,
+    'previous_invoice_number' => $first->number,
+    'previous_invoice_date' => $first->date,
+    'previous_invoice_hash' => $first->hash,
+    'amount' => 150.00,
+    'tax' => 31.50,
+    'total' => 181.50,
+    // ... otros campos
+]);
+
+// Tercera factura enlazada
+$third = Invoice::create([
+    'number' => 'INV-003',
+    'date' => '2024-07-03',
+    'is_first_invoice' => false,
+    'previous_invoice_number' => $second->number,
+    'previous_invoice_date' => $second->date,
+    'previous_invoice_hash' => $second->hash,
+    'amount' => 200.00,
+    'tax' => 42.00,
+    'total' => 242.00,
+    // ... otros campos
+]);
+```
+
+### Subsanación de factura rechazada
+
+```php
+// Factura original que fue rechazada
+$rejectedInvoice = Invoice::create([
+    'number' => 'INV-REJECTED-001',
+    'date' => '2024-06-30',
+    'aeat_status' => 'RECHAZADA',
+    'aeat_response_code' => '1',
+    'aeat_response_message' => 'Error en validación',
+    // ... otros campos
+]);
+
+// Factura de subsanación
+$subsanacionInvoice = Invoice::create([
+    'number' => 'INV-SUBS-001',
+    'date' => '2024-07-01',
+    'is_subsanacion' => true,
+    'rejected_invoice_number' => 'INV-REJECTED-001',
+    'rejection_date' => '2024-06-30',
+    // Corregir los datos que causaron el rechazo
+    'amount' => 100.00,                             // Corregido
+    'tax' => 21.00,
+    'total' => 121.00,
+    // ... otros campos corregidos
+]);
+```
+
+---
+
 ## Envío de Invoice a AEAT (Ejemplo de Controller)
 
 ```php
@@ -315,7 +741,19 @@ class InvoiceAeatController extends Controller
     {
         $invoice = Invoice::with(['breakdowns', 'recipients'])->findOrFail($invoiceId);
         $result = $aeatClient->sendInvoice($invoice);
-        // Puedes registrar el resultado, lanzar eventos, etc.
+        
+        // Actualizar campos de estado si el envío fue exitoso
+        if ($result['status'] === 'success') {
+            $invoice->update([
+                'aeat_status' => $result['aeat_status'] ?? 'ENVIADA',
+                'aeat_response_code' => $result['code'] ?? null,
+                'aeat_response_message' => $result['message'] ?? null,
+                'aeat_registration_date' => $result['registration_date'] ?? null,
+                'aeat_csv' => $result['csv'] ?? null,
+                'has_aeat_warnings' => $result['has_warnings'] ?? false,
+            ]);
+        }
+        
         return response()->json($result, $result['status'] === 'success' ? 200 : 422);
     }
 }
@@ -326,6 +764,33 @@ class InvoiceAeatController extends Controller
 > El resultado incluirá el XML enviado y recibido, útil para depuración.
 > 
 > Si el certificado no es válido o hay error de validación, el array tendrá 'status' => 'error' y 'message'.
+
+### Consultar estado de facturas enviadas
+
+Puedes consultar el estado de las facturas después de enviarlas:
+
+```php
+use Squareetlabs\VeriFactu\Models\Invoice;
+
+// Buscar facturas por estado
+$acceptedInvoices = Invoice::where('aeat_status', 'ACEPTADA')->get();
+$rejectedInvoices = Invoice::where('aeat_status', 'RECHAZADA')->get();
+$pendingInvoices = Invoice::whereNull('aeat_status')->get();
+
+// Buscar facturas con advertencias
+$invoicesWithWarnings = Invoice::where('has_aeat_warnings', true)->get();
+
+// Buscar facturas por CSV
+$invoice = Invoice::where('aeat_csv', 'CSV-123456789')->first();
+
+// Obtener información completa de una factura
+$invoice = Invoice::find(1);
+echo "Estado: " . $invoice->aeat_status;
+echo "Código: " . $invoice->aeat_response_code;
+echo "Mensaje: " . $invoice->aeat_response_message;
+echo "CSV: " . $invoice->aeat_csv;
+echo "Fecha registro: " . $invoice->aeat_registration_date;
+```
 
 ---
 

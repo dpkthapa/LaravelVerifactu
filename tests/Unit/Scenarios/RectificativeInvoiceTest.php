@@ -48,7 +48,7 @@ class RectificativeInvoiceTest extends TestCase
             'total' => -60.50,
         ]);
 
-        $this->assertEquals('R1', $rectificative->type);
+        $this->assertEquals('R1', $rectificative->type->value);
         $this->assertEquals('I', $rectificative->rectificative_type);
         $this->assertEquals(-60.50, $rectificative->total);
     }

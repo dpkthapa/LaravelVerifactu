@@ -44,7 +44,7 @@ class SimplifiedInvoiceTest extends TestCase
         ]);
 
         $this->assertNull($invoice->customer_name);
-        $this->assertEquals('F2', $invoice->type);
+        $this->assertEquals('F2', $invoice->type->value);
     }
 
     /** @test */

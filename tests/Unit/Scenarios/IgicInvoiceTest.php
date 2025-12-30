@@ -40,7 +40,7 @@ class IgicInvoiceTest extends TestCase
         ]);
 
         $breakdown = $invoice->breakdowns->first();
-        $this->assertEquals('02', $breakdown->tax_type);
+        $this->assertEquals('02', $breakdown->tax_type->value);
         $this->assertEquals(7.00, $breakdown->tax_rate);
     }
 }

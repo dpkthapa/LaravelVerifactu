@@ -86,6 +86,22 @@ class AeatClientHybridTest extends TestCase
             {
                 return collect();
             }
+            public function getOperationDate(): ?Carbon
+            {
+                return null;
+            }
+            public function getTaxPeriod(): ?string
+            {
+                return null;
+            }
+            public function getCorrectionType(): ?string
+            {
+                return null;
+            }
+            public function getExternalReference(): ?string
+            {
+                return null;
+            }
         };
 
         // Mock AeatClient to avoid real SOAP calls but verify method signature
