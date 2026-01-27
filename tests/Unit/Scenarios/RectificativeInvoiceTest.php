@@ -70,9 +70,15 @@ class RectificativeInvoiceTest extends TestCase
             'amount' => 150.00,
             'tax' => 31.50,
             'total' => 181.50,
+            // Corrected amounts (original invoice amounts)
+            'corrected_base_amount' => 100.00,
+            'corrected_tax_amount' => 21.00,
+            'corrected_surcharge_amount' => null,
         ]);
 
         $this->assertEquals('S', $rectificative->rectificative_type);
-        $this->assertNull($rectificative->rectification_amount);
+        $this->assertEquals(100.00, $rectificative->getCorrectedBaseAmount());
+        $this->assertEquals(21.00, $rectificative->getCorrectedTaxAmount());
+        $this->assertNull($rectificative->getCorrectedSurchargeAmount());
     }
 }

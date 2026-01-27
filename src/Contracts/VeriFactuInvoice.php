@@ -122,4 +122,31 @@ interface VeriFactuInvoice
      * @return string|null
      */
     public function getExternalReference(): ?string;
+
+    /**
+     * Get the corrected base amount (for substitution corrective invoices)
+     * Required when TipoRectificativa = "S"
+     * This is the original base amount from the invoice being corrected
+     *
+     * @return float|null
+     */
+    public function getCorrectedBaseAmount(): ?float;
+
+    /**
+     * Get the corrected tax amount (for substitution corrective invoices)
+     * Required when TipoRectificativa = "S"
+     * This is the original tax amount from the invoice being corrected
+     *
+     * @return float|null
+     */
+    public function getCorrectedTaxAmount(): ?float;
+
+    /**
+     * Get the corrected surcharge amount (for substitution corrective invoices)
+     * Optional field for AEAT ImporteRectificacion block
+     * This is the original surcharge amount from the invoice being corrected
+     *
+     * @return float|null
+     */
+    public function getCorrectedSurchargeAmount(): ?float;
 }

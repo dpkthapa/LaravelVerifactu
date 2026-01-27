@@ -287,6 +287,14 @@ class AeatClient
 
         if ($invoice->getCorrectionType()) {
             $registroAlta['TipoRectificativa'] = $invoice->getCorrectionType();
+
+            // Add ImporteRectificacion block if required
+            if ($invoice->getCorrectionType() === 'S' && $this->isCorrectiveInvoice($tipoFactura)) {
+                $importeRectificacion = $this->buildImporteRectificacion($invoice);
+                if ($importeRectificacion) {
+                    $registroAlta['ImporteRectificacion'] = $importeRectificacion;
+                }
+            }
         }
 
         if ($invoice->getExternalReference()) {
@@ -298,6 +306,47 @@ class AeatClient
         }
 
         return $registroAlta;
+    }
+
+    /**
+     * Build ImporteRectificacion block for substitution corrective invoices
+     *
+     * @param VeriFactuInvoice $invoice
+     * @return array|null
+     */
+    private function buildImporteRectificacion(VeriFactuInvoice $invoice): ?array
+    {
+        $baseRectificada = $invoice->getCorrectedBaseAmount();
+        $cuotaRectificada = $invoice->getCorrectedTaxAmount();
+
+        // Both base and tax are required
+        if ($baseRectificada === null || $cuotaRectificada === null) {
+            return null;
+        }
+
+        $importe = [
+            'BaseRectificada' => sprintf('%.2f', $baseRectificada),
+            'CuotaRectificada' => sprintf('%.2f', $cuotaRectificada),
+        ];
+
+        // Add optional surcharge if present
+        $cuotaRecargo = $invoice->getCorrectedSurchargeAmount();
+        if ($cuotaRecargo !== null) {
+            $importe['CuotaRecargoRectificado'] = sprintf('%.2f', $cuotaRecargo);
+        }
+
+        return $importe;
+    }
+
+    /**
+     * Check if invoice type is corrective (R1-R5)
+     *
+     * @param string $tipoFactura
+     * @return bool
+     */
+    private function isCorrectiveInvoice(string $tipoFactura): bool
+    {
+        return in_array($tipoFactura, ['R1', 'R2', 'R3', 'R4', 'R5']);
     }
 
     protected function getSoapClient(): \SoapClient

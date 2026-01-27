@@ -83,6 +83,10 @@ class Invoice extends Model implements VeriFactuInvoice
         'aeat_codigo_error',
         'aeat_descripcion_error',
         'has_aeat_warnings',
+        // Corrected amounts for ImporteRectificacion
+        'corrected_base_amount',
+        'corrected_tax_amount',
+        'corrected_surcharge_amount',
     ];
 
     protected $casts = [
@@ -100,6 +104,10 @@ class Invoice extends Model implements VeriFactuInvoice
         'has_aeat_warnings' => 'boolean',
         'rectified_invoices' => 'array',
         'rectification_amount' => 'array',
+        // Corrected amounts for ImporteRectificacion
+        'corrected_base_amount' => 'decimal:2',
+        'corrected_tax_amount' => 'decimal:2',
+        'corrected_surcharge_amount' => 'decimal:2',
     ];
 
     public function breakdowns()
@@ -187,5 +195,26 @@ class Invoice extends Model implements VeriFactuInvoice
     public function getExternalReference(): ?string
     {
         return $this->external_reference;
+    }
+
+    public function getCorrectedBaseAmount(): ?float
+    {
+        return $this->corrected_base_amount !== null
+            ? (float) $this->corrected_base_amount
+            : null;
+    }
+
+    public function getCorrectedTaxAmount(): ?float
+    {
+        return $this->corrected_tax_amount !== null
+            ? (float) $this->corrected_tax_amount
+            : null;
+    }
+
+    public function getCorrectedSurchargeAmount(): ?float
+    {
+        return $this->corrected_surcharge_amount !== null
+            ? (float) $this->corrected_surcharge_amount
+            : null;
     }
 }
