@@ -9,6 +9,9 @@ use GuzzleHttp\Exception\GuzzleException;
 use Squareetlabs\VeriFactu\Contracts\VeriFactuInvoice;
 use Squareetlabs\VeriFactu\Models\Invoice;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Model;
+
 
 class AeatClient
 {
@@ -180,8 +183,9 @@ class AeatClient
             }
             $rate = round((float) $rateRaw, 2);
 
-            // 7% => IGIC, everything else => IVA
-            $isIgic = abs($rate - 7.00) < 0.0001;
+
+            $taxType = $this->getBranchTaxType($invoice);
+            $isIgic = ($taxType === 'IGIC'); // optional: keep 7% safety-net
 
             $detalle[] = [
                 'Impuesto' => $isIgic ? '03' : '01',   // ✅ KEY FIX
@@ -432,5 +436,28 @@ class AeatClient
                 'response' => isset($client) ? $client->__getLastResponse() : null,
             ];
         }
+    }
+
+    private function getBranchTaxType(VeriFactuInvoice $invoice): string
+    {
+        $branchId = null;
+
+        if ($invoice instanceof Model) {
+            $branchId = $invoice->getAttribute('branch_id');
+        }
+
+        if ($branchId) {
+            $val = DB::table('sys_configs')
+                ->where('branch_id', $branchId)
+                ->where('config_keys', 'tax_type')
+                ->value('config_values');
+
+            $val = strtoupper(trim((string) $val));
+            if (in_array($val, ['IVA', 'IGIC'], true)) {
+                return $val;
+            }
+        }
+
+        return 'IVA'; // safe default
     }
 }

@@ -87,6 +87,7 @@ class Invoice extends Model implements VeriFactuInvoice
         'corrected_base_amount',
         'corrected_tax_amount',
         'corrected_surcharge_amount',
+        'branch_id'
     ];
 
     protected $casts = [
