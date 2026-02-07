@@ -174,24 +174,22 @@ class AeatClient
         $breakdowns = $invoice->getBreakdowns();
         $detalle = [];
 
+        $taxType = $this->getBranchTaxType($invoice);
+        $isIgicForInvoice = ($taxType === 'IGIC');
+
         foreach ($breakdowns as $breakdown) {
             $rateRaw = $breakdown->getTaxRate();
 
-            // Normalize rate (DB may store "7" as string)
             if (is_string($rateRaw)) {
                 $rateRaw = str_replace(',', '.', trim($rateRaw));
             }
             $rate = round((float) $rateRaw, 2);
 
-
-            $taxType = $this->getBranchTaxType($invoice);
-            $isIgic = ($taxType === 'IGIC'); // optional: keep 7% safety-net
-
             $detalle[] = [
-                'Impuesto' => $isIgic ? '03' : '01',   // ✅ KEY FIX
+                'Impuesto' => $isIgicForInvoice ? '03' : '01',
                 'ClaveRegimen' => $breakdown->getRegimeType(),
                 'CalificacionOperacion' => $breakdown->getOperationType(),
-                'TipoImpositivo' => $rate,             // numeric
+                'TipoImpositivo' => $rate,
                 'BaseImponibleOimporteNoSujeto' => sprintf('%.2f', (float) $breakdown->getBaseAmount()),
                 'CuotaRepercutida' => sprintf('%.2f', (float) $breakdown->getTaxAmount()),
             ];
