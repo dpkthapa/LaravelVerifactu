@@ -172,10 +172,22 @@ class AeatClient
         $detalle = [];
 
         foreach ($breakdowns as $breakdown) {
+            $rateRaw = $breakdown->getTaxRate();
+
+            // Normalize rate (DB may store "7" as string)
+            if (is_string($rateRaw)) {
+                $rateRaw = str_replace(',', '.', trim($rateRaw));
+            }
+            $rate = round((float) $rateRaw, 2);
+
+            // 7% => IGIC, everything else => IVA
+            $isIgic = abs($rate - 7.00) < 0.0001;
+
             $detalle[] = [
+                'Impuesto' => $isIgic ? '03' : '01',   // ✅ KEY FIX
                 'ClaveRegimen' => $breakdown->getRegimeType(),
                 'CalificacionOperacion' => $breakdown->getOperationType(),
-                'TipoImpositivo' => (float) $breakdown->getTaxRate(),
+                'TipoImpositivo' => $rate,             // numeric
                 'BaseImponibleOimporteNoSujeto' => sprintf('%.2f', (float) $breakdown->getBaseAmount()),
                 'CuotaRepercutida' => sprintf('%.2f', (float) $breakdown->getTaxAmount()),
             ];
@@ -184,6 +196,7 @@ class AeatClient
         if (count($detalle) === 0) {
             $base = sprintf('%.2f', (float) $invoice->getTotalAmount() - $invoice->getTaxAmount());
             $detalle[] = [
+                'Impuesto' => '01',
                 'ClaveRegimen' => '01',
                 'CalificacionOperacion' => 'S1',
                 'TipoImpositivo' => 0.0,
@@ -194,6 +207,7 @@ class AeatClient
 
         return $detalle;
     }
+
 
     private function buildChaining(?array $previous, string $issuerVat): array
     {
@@ -420,4 +434,3 @@ class AeatClient
         }
     }
 }
-
