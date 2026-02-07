@@ -445,7 +445,7 @@ class AeatClient
         }
 
         if ($branchId) {
-            $val = DB::table('sys_configs')
+            $val = DB::table('sys_config')
                 ->where('branch_id', $branchId)
                 ->where('config_keys', 'tax_type')
                 ->value('config_values');
