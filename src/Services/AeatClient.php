@@ -29,7 +29,7 @@ class AeatClient
         $this->production = $production;
         $this->verifactuMode = $verifactuMode ?? config('verifactu.verifactu_mode', true);
         $this->baseUri = $production
-            ? 'https://www1.aeat.es'
+            ? 'https://www2.aeat.es'
             : 'https://prewww1.aeat.es';
         $this->client = new Client([
             'cert' => ($certPassword === null) ? $certPath : [$certPath, $certPassword],
@@ -369,8 +369,8 @@ class AeatClient
     {
         if ($this->production) {
             $wsdl = $this->verifactuMode
-                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP?wsdl'
-                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP?wsdl';
+                ? 'https://www2.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP?wsdl'
+                : 'https://www2.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP?wsdl';
         } else {
             $wsdl = 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
         }
@@ -403,8 +403,8 @@ class AeatClient
     {
         if ($this->production) {
             $location = $this->verifactuMode
-                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
-                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
+                ? 'https://www2.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
+                : 'https://www2.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
         } else {
             $location = $this->verifactuMode
                 ? 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
