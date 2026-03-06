@@ -28,16 +28,16 @@ class AeatClient
         $this->certPassword = $certPassword;
         $this->production = $production;
         $this->verifactuMode = $verifactuMode ?? config('verifactu.verifactu_mode', true);
-        $this->baseUri = $production
-            ? 'https://www1.aeat.es'
-            : 'https://prewww1.aeat.es';
-        $this->client = new Client([
-            'cert' => ($certPassword === null) ? $certPath : [$certPath, $certPassword],
-            'base_uri' => $this->baseUri,
-            'headers' => [
-                'User-Agent' => 'LaravelVerifactu/1.0',
-            ],
-        ]);
+        // $this->baseUri = $production
+        //     ? 'https://www2.aeat.es'
+        //     : 'https://prewww1.aeat.es';
+        // $this->client = new Client([
+        //     'cert' => ($certPassword === null) ? $certPath : [$certPath, $certPassword],
+        //     'base_uri' => $this->baseUri,
+        //     'headers' => [
+        //         'User-Agent' => 'LaravelVerifactu/1.0',
+        //     ],
+        // ]);
     }
 
 
@@ -367,20 +367,17 @@ class AeatClient
 
     protected function getSoapClient(): \SoapClient
     {
-        if ($this->production) {
-            $wsdl = $this->verifactuMode
-                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP?wsdl'
-                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP?wsdl';
-        } else {
-            $wsdl = 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
-        }
+        // AEAT publishes the WSDL as a static file
+        $wsdl = $this->production
+            ? 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl'
+            : 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
 
-        $options = [
+        return new \SoapClient($wsdl, [
             'local_cert' => $this->certPath,
             'passphrase' => $this->certPassword,
             'trace' => true,
             'exceptions' => true,
-            'cache_wsdl' => 0,
+            'cache_wsdl' => WSDL_CACHE_NONE,
             'soap_version' => SOAP_1_1,
             'connection_timeout' => 30,
             'stream_context' => stream_context_create([
@@ -394,31 +391,68 @@ class AeatClient
                     'user_agent' => 'LaravelVerifactu/1.0',
                 ],
             ]),
-        ];
-
-        return new \SoapClient($wsdl, $options);
+        ]);
     }
 
-    private function performSoapCall(array $body, string $huella, string $numSerie, string $fechaExp, string $ts, ?array $previous): array
-    {
+    private function performSoapCall(
+        array $body,
+        string $huella,
+        string $numSerie,
+        string $fechaExp,
+        string $ts,
+        ?array $previous
+    ): array {
         if ($this->production) {
             $location = $this->verifactuMode
-                ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
-                : 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
+                ? 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
+                : 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
         } else {
             $location = $this->verifactuMode
                 ? 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
                 : 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/RequerimientoSOAP';
         }
 
+        $client = null;
+
         try {
             $client = $this->getSoapClient();
             $client->__setLocation($location);
+
+            Log::info('AEAT SOAP call started', [
+                'endpoint' => $location,
+                'invoice_number' => $numSerie,
+                'invoice_date' => $fechaExp,
+                'timestamp' => $ts,
+                'verifactu_mode' => $this->verifactuMode,
+                'production' => $this->production,
+                'body_array' => $body, // useful for debugging before XML serialization
+            ]);
+
             $response = $client->__soapCall('RegFactuSistemaFacturacion', [$body]);
+
+            $lastRequestXml = $client->__getLastRequest();
+            $lastResponseXml = $client->__getLastResponse();
+            $lastRequestHeaders = $client->__getLastRequestHeaders();
+            $lastResponseHeaders = $client->__getLastResponseHeaders();
+
+            Log::info('AEAT SOAP success', [
+                'endpoint' => $location,
+                'invoice_number' => $numSerie,
+                'request_headers' => $lastRequestHeaders,
+                'request_xml' => $lastRequestXml,
+                'response_headers' => $lastResponseHeaders,
+                'response_xml' => $lastResponseXml,
+                'parsed_response' => $response,
+                'hash' => $huella,
+                'first' => $previous ? false : true,
+            ]);
+
             return [
                 'status' => 'success',
-                'request' => $client->__getLastRequest(),
-                'response' => $client->__getLastResponse(),
+                'request' => $lastRequestXml,
+                'request_headers' => $lastRequestHeaders,
+                'response' => $lastResponseXml,
+                'response_headers' => $lastResponseHeaders,
                 'aeat_response' => $response,
                 'hash' => $huella,
                 'number' => $numSerie,
@@ -427,11 +461,33 @@ class AeatClient
                 'first' => $previous ? false : true,
             ];
         } catch (\SoapFault $e) {
+            $lastRequestXml = $client ? $client->__getLastRequest() : null;
+            $lastResponseXml = $client ? $client->__getLastResponse() : null;
+            $lastRequestHeaders = $client ? $client->__getLastRequestHeaders() : null;
+            $lastResponseHeaders = $client ? $client->__getLastResponseHeaders() : null;
+
+            Log::error('AEAT SOAP fault', [
+                'endpoint' => $location,
+                'invoice_number' => $numSerie,
+                'error_message' => $e->getMessage(),
+                'fault_code' => $e->faultcode ?? null,
+                'fault_string' => $e->faultstring ?? null,
+                'request_headers' => $lastRequestHeaders,
+                'request_xml' => $lastRequestXml,
+                'response_headers' => $lastResponseHeaders,
+                'response_xml' => $lastResponseXml,
+                'body_array' => $body,
+            ]);
+
             return [
                 'status' => 'error',
                 'message' => $e->getMessage(),
-                'request' => isset($client) ? $client->__getLastRequest() : null,
-                'response' => isset($client) ? $client->__getLastResponse() : null,
+                'fault_code' => $e->faultcode ?? null,
+                'fault_string' => $e->faultstring ?? null,
+                'request' => $lastRequestXml,
+                'request_headers' => $lastRequestHeaders,
+                'response' => $lastResponseXml,
+                'response_headers' => $lastResponseHeaders,
             ];
         }
     }
