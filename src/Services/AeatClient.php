@@ -418,15 +418,15 @@ class AeatClient
             $client = $this->getSoapClient();
             $client->__setLocation($location);
 
-            Log::info('AEAT SOAP call started', [
-                'endpoint' => $location,
-                'invoice_number' => $numSerie,
-                'invoice_date' => $fechaExp,
-                'timestamp' => $ts,
-                'verifactu_mode' => $this->verifactuMode,
-                'production' => $this->production,
-                'body_array' => $body, // useful for debugging before XML serialization
-            ]);
+            // Log::info('AEAT SOAP call started', [
+            //     'endpoint' => $location,
+            //     'invoice_number' => $numSerie,
+            //     'invoice_date' => $fechaExp,
+            //     'timestamp' => $ts,
+            //     'verifactu_mode' => $this->verifactuMode,
+            //     'production' => $this->production,
+            //     'body_array' => $body, // useful for debugging before XML serialization
+            // ]);
 
             $response = $client->__soapCall('RegFactuSistemaFacturacion', [$body]);
 
