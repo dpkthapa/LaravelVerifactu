@@ -7,6 +7,7 @@ namespace Squareetlabs\VeriFactu\Services;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Squareetlabs\VeriFactu\Contracts\VeriFactuInvoice;
+use Squareetlabs\VeriFactu\Enums\ForeignIdType;
 use Squareetlabs\VeriFactu\Models\Invoice;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,19 @@ use Illuminate\Database\Eloquent\Model;
 
 class AeatClient
 {
+    /**
+     * Countries whose tax identifiers carry the country code as a VAT prefix.
+     *
+     * Used ONLY to guess IDType when the application does not declare one, and
+     * kept narrow on purpose: guessing '02' outside this list turns an ordinary
+     * document number into a claimed VAT registration. ES is included for
+     * completeness though a Spanish recipient never reaches IDOtro.
+     */
+    private const EU_VAT_COUNTRIES = [
+        'AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE',
+        'IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','XI',
+    ];
+
     private string $baseUri;
     private string $certPath;
     private ?string $certPassword;
@@ -233,15 +247,105 @@ class AeatClient
             $destinatarios = [];
             foreach ($recipients as $recipient) {
                 $r = ['NombreRazon' => $recipient->getName()];
-                $taxId = $recipient->getTaxId();
-                if (!empty($taxId)) {
-                    $r['NIF'] = $taxId;
+                $taxId = trim((string) ($recipient->getTaxId() ?? ''));
+
+                if ($taxId !== '') {
+                    $country = $this->recipientCountry($recipient);
+
+                    // NIF and IDOtro are mutually exclusive, and which one is
+                    // correct depends on WHO the recipient is, not on the shape
+                    // of the string. Everything used to go into NIF, so a French
+                    // VAT number or a passport was filed as a Spanish tax
+                    // identifier — a declaration about a taxpayer who does not
+                    // exist, not a formatting slip.
+                    //
+                    // Spanish, or country not stated -> NIF, exactly as before,
+                    // so an application that never sets a country keeps its
+                    // current behaviour byte for byte.
+                    if ($country === '' || $country === 'ES') {
+                        $r['NIF'] = $taxId;
+                    } else {
+                        $r['IDOtro'] = [
+                            'CodigoPais' => $country,
+                            'IDType'     => $this->foreignIdType($recipient, $taxId, $country),
+                            'ID'         => $taxId,
+                        ];
+                    }
                 }
+
                 $destinatarios[] = $r;
             }
             return ['IDDestinatario' => $destinatarios];
         }
         return null;
+    }
+
+    /**
+     * ISO 3166-1 alpha-2 country for a recipient, or '' when it does not say.
+     *
+     * Duck-typed rather than requiring VeriFactuForeignRecipient: a model that
+     * already exposes getCountry() works untouched, which is the point of not
+     * changing the original contract.
+     */
+    private function recipientCountry($recipient): string
+    {
+        if (!method_exists($recipient, 'getCountry')) {
+            return '';
+        }
+
+        $country = strtoupper(trim((string) ($recipient->getCountry() ?? '')));
+
+        // Only a real alpha-2 code routes to IDOtro. A full country name, a
+        // stray '0', a three-letter code — all fall back to the previous NIF
+        // behaviour rather than emitting a CodigoPais AEAT will reject, because
+        // a rejected record is worse than an imperfect one.
+        return preg_match('/^[A-Z]{2}$/', $country) === 1 ? $country : '';
+    }
+
+    /**
+     * Which document IDOtro carries: '02' VAT … '07' unregistered.
+     *
+     * An explicit answer from the recipient always wins. Absent one, an
+     * identifier carrying its own country's VAT prefix (FR12345678901) is taken
+     * as a VAT number and everything else as '06', "other supporting document".
+     * '06' is deliberately the fallback: it is exactly what it claims, whereas
+     * labelling an unknown document '02' asserts a VAT registration that may
+     * not exist.
+     */
+    private function foreignIdType($recipient, string $taxId, string $country): string
+    {
+        if (method_exists($recipient, 'getForeignIdType')) {
+            $declared = $recipient->getForeignIdType();
+
+            if ($declared instanceof ForeignIdType) {
+                return $declared->value;
+            }
+
+            $declared = trim((string) ($declared ?? ''));
+            if ($declared !== '' && ForeignIdType::tryFrom($declared) instanceof ForeignIdType) {
+                return $declared;
+            }
+        }
+
+        // The "identifier begins with its country code" convention is an EU VAT
+        // one, and only inside the EU does it mean anything. Applied globally it
+        // misfires on ordinary document numbers that merely happen to start with
+        // two matching letters — a Nepali document 'NP998877' for country NP
+        // came back as IDType 02, asserting a VAT registration that does not
+        // exist. Outside the EU the honest answer is always '06'.
+        $prefix = strtoupper($taxId);
+
+        // Greece is the one country whose VAT prefix is not its country code.
+        $vatPrefix = $country === 'GR' ? 'EL' : $country;
+
+        $looksLikeEuVat = in_array($country, self::EU_VAT_COUNTRIES, true)
+            && str_starts_with($prefix, $vatPrefix)
+            // A bare prefix is not a number; require identifier characters after it.
+            && preg_match('/^[A-Z]{2}[0-9A-Z]{2,}$/', $prefix) === 1;
+
+        return $looksLikeEuVat
+            ? ForeignIdType::VAT->value
+            : ForeignIdType::OTHER_DOCUMENT->value;
     }
 
     private function buildRegistration(
