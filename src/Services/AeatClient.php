@@ -405,6 +405,17 @@ class AeatClient
             ];
         }
 
+        // The reference to the invoice being corrected. MANDATORY on R1-R5 and
+        // never emitted before this: TipoRectificativa said a correction was
+        // happening while nothing said WHAT was corrected, so every rectificativa
+        // went out unable to be matched to its original.
+        if ($this->isCorrectiveInvoice($tipoFactura)) {
+            $facturasRectificadas = $this->buildRectifiedInvoices($invoice, $issuerVat);
+            if ($facturasRectificadas) {
+                $registroAlta['FacturasRectificadas'] = $facturasRectificadas;
+            }
+        }
+
         if ($invoice->getCorrectionType()) {
             $registroAlta['TipoRectificativa'] = $invoice->getCorrectionType();
 
@@ -426,6 +437,113 @@ class AeatClient
         }
 
         return $registroAlta;
+    }
+
+    /**
+     * <FacturasRectificadas> — which invoice(s) this corrective document corrects.
+     *
+     * Read through an optional getRectifiedInvoices() rather than a new method on
+     * VeriFactuInvoice, because adding a required method to that contract would
+     * fatal every application already implementing it.
+     *
+     * Each entry may be:
+     *   - an array  ['number' => 'INV-1', 'date' => '2026-08-01'|Carbon, 'issuer' => 'NIF']
+     *     (also accepts AEAT's own key names, and num_serie/fecha)
+     *   - a bare string, i.e. just the number.
+     *
+     * A bare string CANNOT be emitted. FechaExpedicionFactura is mandatory inside
+     * IDFacturaRectificada, and inventing a date would file a reference to an
+     * invoice that does not exist on that date — worse than the omission. Those
+     * entries are skipped and logged, loudly, because the caller needs to fix its
+     * data rather than discover the gap at an inspection.
+     *
+     * @return array|null
+     */
+    private function buildRectifiedInvoices(VeriFactuInvoice $invoice, string $issuerVat): ?array
+    {
+        if (!method_exists($invoice, 'getRectifiedInvoices')) {
+            return null;
+        }
+
+        $list = $invoice->getRectifiedInvoices();
+
+        if ($list instanceof \Illuminate\Support\Collection) {
+            $list = $list->all();
+        }
+
+        if (!is_array($list) || $list === []) {
+            return null;
+        }
+
+        $entries = [];
+
+        foreach ($list as $item) {
+            $number = null;
+            $date   = null;
+            $issuer = $issuerVat;
+
+            if (is_string($item) || is_numeric($item)) {
+                $number = trim((string) $item);
+            } elseif (is_array($item)) {
+                $number = trim((string) ($item['number'] ?? $item['num_serie'] ?? $item['NumSerieFactura'] ?? ''));
+                $date   = $item['date'] ?? $item['fecha'] ?? $item['FechaExpedicionFactura'] ?? null;
+                $issuer = trim((string) ($item['issuer'] ?? $item['nif'] ?? $item['IDEmisorFactura'] ?? '')) ?: $issuerVat;
+            }
+
+            if ($number === null || $number === '') {
+                continue;
+            }
+
+            $formatted = $this->formatRectifiedDate($date);
+
+            if ($formatted === null) {
+                Log::warning('VeriFactu: skipping a rectified-invoice reference with no usable issue date. '
+                    . 'FechaExpedicionFactura is mandatory, so this correction will be filed without naming '
+                    . 'the invoice it corrects.', [
+                        'corrective_invoice' => $invoice->getInvoiceNumber(),
+                        'rectified_number'   => $number,
+                    ]);
+                continue;
+            }
+
+            $entries[] = [
+                'IDEmisorFactura'        => $issuer,
+                'NumSerieFactura'        => $number,
+                'FechaExpedicionFactura' => $formatted,
+            ];
+
+            // AEAT caps the list at 1000.
+            if (count($entries) >= 1000) {
+                break;
+            }
+        }
+
+        return $entries === [] ? null : ['IDFacturaRectificada' => $entries];
+    }
+
+    /** AEAT wants d-m-Y. Accepts Carbon, d-m-Y, Y-m-d, or anything strtotime reads. */
+    private function formatRectifiedDate($date): ?string
+    {
+        if ($date instanceof \DateTimeInterface) {
+            return $date->format('d-m-Y');
+        }
+
+        $date = trim((string) ($date ?? ''));
+
+        if ($date === '') {
+            return null;
+        }
+
+        // Already in AEAT's format — do not let strtotime reinterpret it as m-d-Y.
+        if (preg_match('/^\d{2}-\d{2}-\d{4}$/', $date) === 1) {
+            return $date;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($date)->format('d-m-Y');
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
