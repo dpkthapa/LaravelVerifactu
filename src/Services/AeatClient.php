@@ -26,7 +26,20 @@ class AeatClient
      */
     private const EU_VAT_COUNTRIES = [
         'AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE',
-        'IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','XI',
+        'IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','GB',
+    ];
+
+    /**
+     * Countries whose VAT prefix is not simply the country code.
+     *
+     * Greece files as EL. Northern Ireland trades under XI while its ISO country
+     * is GB, so a GB recipient may legitimately present either. 'XI' is NOT a
+     * country here — it is not an ISO 3166-1 code and must never reach
+     * CodigoPais.
+     */
+    private const VAT_PREFIX_OVERRIDES = [
+        'GR' => ['EL'],
+        'GB' => ['GB', 'XI'],
     ];
 
     private string $baseUri;
@@ -335,11 +348,18 @@ class AeatClient
         // exist. Outside the EU the honest answer is always '06'.
         $prefix = strtoupper($taxId);
 
-        // Greece is the one country whose VAT prefix is not its country code.
-        $vatPrefix = $country === 'GR' ? 'EL' : $country;
+        $accepted = self::VAT_PREFIX_OVERRIDES[$country] ?? [$country];
+
+        $carriesVatPrefix = false;
+        foreach ($accepted as $candidate) {
+            if (str_starts_with($prefix, $candidate)) {
+                $carriesVatPrefix = true;
+                break;
+            }
+        }
 
         $looksLikeEuVat = in_array($country, self::EU_VAT_COUNTRIES, true)
-            && str_starts_with($prefix, $vatPrefix)
+            && $carriesVatPrefix
             // A bare prefix is not a number; require identifier characters after it.
             && preg_match('/^[A-Z]{2}[0-9A-Z]{2,}$/', $prefix) === 1;
 
