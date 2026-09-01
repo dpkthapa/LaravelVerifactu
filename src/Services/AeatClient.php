@@ -560,10 +560,21 @@ class AeatClient
         }
 
         try {
-            return \Carbon\Carbon::parse($date)->format('d-m-Y');
+            $parsed = \Carbon\Carbon::parse($date);
         } catch (\Throwable $e) {
             return null;
         }
+
+        // Carbon does NOT throw on MySQL's zero date: '0000-00-00' parses
+        // happily and formats as '30-11--0001', which would be filed to AEAT as
+        // the issue date of the corrected invoice. A column left at the zero
+        // date is missing data, so treat it as missing and let the caller skip
+        // and warn rather than emit a date that cannot exist.
+        if ((int) $parsed->format('Y') < 1000) {
+            return null;
+        }
+
+        return $parsed->format('d-m-Y');
     }
 
     /**
