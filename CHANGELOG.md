@@ -28,8 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sujetas (N1/N2).
 - `VeriFactuBreakdownExtras` y el enum `ExemptionCause`. Ambos opcionales y
   leídos con `method_exists()`.
-- `sendInvoice()` / `sendCancellation()` aceptan `huella:` y `generatedAt:` para
-  presentar la huella ya almacenada en lugar de recalcular una distinta.
+- `sendCancellation()` acepta el mismo `$record` (`hash` + `generated_at`) que
+  `sendInvoice()` en v2.0.0, para presentar la huella ya almacenada en lugar de
+  recalcular una distinta.
+- El emisor por instancia de v2.0.0 se conserva como base y la factura puede
+  sobreescribirlo: un worker de cola construye un cliente y sirve a todos los
+  emisores, y la huella almacenada se calculó con el NIF que lleva la factura.
 - Conciliación de `ImporteTotal` y `CuotaTotal` contra el desglose (aviso por
   log, nunca corrección silenciosa: son entradas de la huella).
 - `verifactu.logging.{xml,redact}`.
@@ -59,6 +63,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Added
+
+#### Host-chain & multi-tenant support (Quandium integration)
+- `AeatClient::sendInvoice()` acepta un tercer parámetro `$record` con
+  `['hash' => ..., 'generated_at' => ...]` precalculados. Imprescindible cuando
+  la aplicación host persiste su propia cadena de huellas en el momento de la
+  emisión: la `Huella` y `FechaHoraHusoGenRegistro` remitidas a AEAT deben ser
+  exactamente las almacenadas, nunca recalculadas en el envío asíncrono
+  (recalcularlas con un timestamp nuevo rompería la integridad de la cadena).
+- `AeatClient` acepta un emisor por instancia (5º parámetro del constructor,
+  `['name' => ..., 'vat' => ...]`) para aplicaciones multi-tenant donde cada
+  empresa es un obligado de emisión distinto. Sin él, se mantiene el
+  comportamiento anterior (`config('verifactu.issuer')`).
+
+#### Colaborador social / entidad colaboradora AEAT
+- Soporte de **Representante** en la Cabecera: plataformas registradas como
+  entidad colaboradora remiten en nombre de sus clientes usando el certificado
+  de la PLATAFORMA — los obligados de emisión no necesitan aportar el suyo.
+  Se configura globalmente (`config('verifactu.representative')` /
+  `VERIFACTU_REP_NAME`, `VERIFACTU_REP_VAT`) o por instancia (6º parámetro del
+  constructor de `AeatClient`). Si no se configura, la Cabecera no cambia.
+
+#### API de integración para hosts
+- Contrato `CertificateProvider` + `ConfigCertificateProvider` (por defecto,
+  lee `verifactu.aeat.cert_path/cert_password` y valida que el fichero exista).
+  Los hosts con otro almacén de certificados (por emisor, Vault, S3+KMS...)
+  re-vinculan el contrato en el contenedor.
+- `AeatClientFactory`: construye `AeatClient` desde config + CertificateProvider,
+  con emisor/representante por llamada. El transport de un host queda reducido a
+  mapear su propio registro de cadena.
+- `AeatSubmissionResponse`: DTO tipado sobre el array crudo de `sendInvoice()`.
+  Parsea `EstadoEnvio`, `CSV` y `RespuestaLinea` (única o lista) con
+  `accepted()` / `partiallyAccepted()` / `rejected()` / `firstError()` /
+  `toArray()` — antes cada consumidor escarbaba el stdClass del SOAP a mano.
+- Bindings registrados en `VeriFactuServiceProvider` (`CertificateProvider` →
+  `ConfigCertificateProvider`, `AeatClientFactory` singleton).
+
+### Changed
+- `AeatClient::buildFingerprint()` delega en `HashHelper::generateInvoiceHash()`:
+  una única implementación de la especificación de huella AEAT v0.1.2 (antes
+  estaba duplicada y solo `HashHelper` tenía tests de conformidad).
+
+### Fixed
+- Tests `AeatClientHybridTest` y `ContractComplianceTest`: las implementaciones
+  anónimas de `VeriFactuInvoice` no compilaban tras añadirse los métodos
+  `getCorrectedBaseAmount/TaxAmount/SurchargeAmount` al contrato.
 
 #### Core Features (Issue #6 + PR #8)
 - Soporte para dos modos de facturación: VERIFACTU y NO VERIFACTU (Requerimiento)

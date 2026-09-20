@@ -104,7 +104,7 @@ class AnulacionEnvelopeTest extends EnvelopeTestCase
             $this->client()->sendCancellation(
                 $this->legacyInvoice([$this->legacyBreakdown()]),
                 $previous,
-                generatedAt: $ts
+                record: ['generated_at' => $ts]
             ),
             'RegistroAnulacion'
         );
@@ -135,7 +135,7 @@ class AnulacionEnvelopeTest extends EnvelopeTestCase
             $this->client()->sendCancellation(
                 $this->legacyInvoice([$this->legacyBreakdown()]),
                 null,
-                huella: str_repeat('d', 64)
+                record: ['hash' => str_repeat('D', 64)]
             ),
             'RegistroAnulacion'
         );

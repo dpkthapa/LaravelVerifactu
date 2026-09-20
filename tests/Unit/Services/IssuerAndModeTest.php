@@ -38,7 +38,7 @@ class IssuerAndModeTest extends EnvelopeTestCase
         $result = $this->client()->sendInvoice(
             $this->issuerAwareInvoice([$this->legacyBreakdown()], 'A99999999', 'Outlet SL'),
             null,
-            generatedAt: '2026-09-20T09:00:00+00:00'
+            record: ['generated_at' => '2026-09-20T09:00:00+00:00']
         );
 
         $registro = $this->registro($result);
@@ -52,7 +52,7 @@ class IssuerAndModeTest extends EnvelopeTestCase
         $withConfigured = $this->registro($this->client()->sendInvoice(
             $this->legacyInvoice([$this->legacyBreakdown()]),
             null,
-            generatedAt: '2026-09-20T09:00:00+00:00'
+            record: ['generated_at' => '2026-09-20T09:00:00+00:00']
         ));
 
         $this->assertNotSame($withConfigured['Huella'], $registro['Huella']);
@@ -67,6 +67,51 @@ class IssuerAndModeTest extends EnvelopeTestCase
 
         $this->assertSame('B11111111', $registro['IDFactura']['IDEmisorFactura']);
         $this->assertSame('Configured Issuer SL', $registro['NombreRazonEmisor']);
+    }
+
+    /**
+     * The per-instance issuer (upstream v2.0.0) and the per-invoice issuer are
+     * not two versions of the same idea, and the precedence between them is
+     * load-bearing.
+     *
+     * A client configured for one obligado, filing an invoice that records a
+     * different one, files the INVOICE's — that is the NIF its stored huella
+     * was built from. One queue worker builds one client and serves every
+     * outlet, so this is the ordinary case, not the exotic one.
+     */
+    public function testInvoiceIssuerBeatsThePerInstanceIssuer(): void
+    {
+        $client = $this->clientWith(['name' => 'Instance SL', 'vat' => 'B22222222']);
+
+        // The invoice knows who issued it.
+        $registro = $this->registro($client->sendInvoice(
+            $this->issuerAwareInvoice([$this->legacyBreakdown()], 'A99999999', 'Outlet SL')
+        ));
+        $this->assertSame('A99999999', $registro['IDFactura']['IDEmisorFactura']);
+
+        // It does not: the instance's issuer stands, not config's.
+        $registro = $this->registro($client->sendInvoice(
+            $this->legacyInvoice([$this->legacyBreakdown()])
+        ));
+        $this->assertSame('B22222222', $registro['IDFactura']['IDEmisorFactura']);
+        $this->assertSame('Instance SL', $registro['NombreRazonEmisor']);
+    }
+
+    /**
+     * A colaborador social files anulaciones too. The Representante block comes
+     * from buildHeader(), so sendCancellation() inherits it for free — the two
+     * halves of this merge meeting in one envelope.
+     */
+    public function testRepresentativeReachesTheCancellationHeader(): void
+    {
+        $client = $this->clientWith(null, ['name' => 'Gestoría SL', 'vat' => 'B33333333']);
+
+        $result = $client->sendCancellation($this->legacyInvoice([$this->legacyBreakdown()]));
+
+        $this->assertSame(
+            ['NombreRazon' => 'Gestoría SL', 'NIF' => 'B33333333'],
+            $result['body']['Cabecera']['Representante']
+        );
     }
 
     /**

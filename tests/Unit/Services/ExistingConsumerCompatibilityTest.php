@@ -93,7 +93,7 @@ class ExistingConsumerCompatibilityTest extends EnvelopeTestCase
         $result = $this->client()->sendInvoice(
             $this->consumerInvoice([$this->consumerBreakdown()]),
             null,
-            generatedAt: '2026-09-20T09:00:00+00:00'
+            record: ['generated_at' => '2026-09-20T09:00:00+00:00']
         );
 
         $registro = $this->registro($result);

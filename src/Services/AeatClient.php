@@ -52,14 +52,49 @@ class AeatClient
     private bool $production;
     private bool $verifactuMode;
 
-    public function __construct(string $certPath, ?string $certPassword = null, bool $production = false, ?bool $verifactuMode = null)
-    {
+    /** @var array{name: string, vat: string} */
+    private array $issuer;
+
+    /** @var array{name: string, vat: string}|null */
+    private ?array $representative;
+
+    /**
+     * @param array{name: string, vat: string}|null $issuer Issuer (obligado emisión).
+     *        Defaults to config('verifactu.issuer'). Pass it explicitly in
+     *        multi-tenant applications where each company is a different issuer.
+     * @param array{name: string, vat: string}|null $representative Social
+     *        collaborator / representative (colaborador social AEAT). When set,
+     *        a Representante block is added to the Cabecera and the TLS client
+     *        certificate is expected to be the COLLABORATOR's, not the issuer's:
+     *        the platform submits on behalf of its clients, who never have to
+     *        provide their own certificate. Defaults to
+     *        config('verifactu.representative') when it has a non-empty vat.
+     */
+    public function __construct(
+        string $certPath,
+        ?string $certPassword = null,
+        bool $production = false,
+        ?bool $verifactuMode = null,
+        ?array $issuer = null,
+        ?array $representative = null
+    ) {
         $this->certPath = $certPath;
         $this->certPassword = $certPassword;
         $this->production = $production;
         $this->verifactuMode = $verifactuMode ?? config('verifactu.verifactu_mode', true);
+        $this->issuer = $issuer ?? (array) config('verifactu.issuer', ['name' => '', 'vat' => '']);
+
+        $configRepresentative = (array) config('verifactu.representative', []);
+        $this->representative = $representative
+            ?? (!empty($configRepresentative['vat']) ? $configRepresentative : null);
+
+        // The Guzzle client stays commented out (this fork, b4884c8). Every AEAT
+        // call goes through ext-soap; this constructed a client nothing used, and
+        // guzzlehttp/guzzle is not in this package's require — so on an install
+        // where Laravel did not drag it in, merely constructing an AeatClient
+        // fatalled.
         // $this->baseUri = $production
-        //     ? 'https://www2.aeat.es'
+        //     ? 'https://www1.aeat.es'
         //     : 'https://prewww1.aeat.es';
         // $this->client = new Client([
         //     'cert' => ($certPassword === null) ? $certPath : [$certPath, $certPassword],
@@ -70,12 +105,11 @@ class AeatClient
         // ]);
     }
 
-
-
     /**
      * Build fingerprint/hash for invoice chaining.
      *
-     * Delegates to HashHelper rather than repeating the concatenation, because
+     * Single source of truth for the AEAT hash spec. Delegates to HashHelper
+     * rather than repeating the concatenation, because
      * the two copies had already drifted: HashHelper::field() trims each value
      * and this method did not, so a stored value carrying a stray space
      * (' A00000000', a number pasted with a trailing newline) produced one
@@ -108,43 +142,46 @@ class AeatClient
         string $prevHash = ''
     ): string {
         return HashHelper::generateInvoiceHash([
-            'issuer_tax_id'  => $issuerVat,
+            'issuer_tax_id' => $issuerVat,
             'invoice_number' => $numSerie,
-            'issue_date'     => $fechaExp,
-            'invoice_type'   => $tipoFactura,
-            'total_tax'      => $cuotaTotal,
-            'total_amount'   => $importeTotal,
-            'previous_hash'  => $prevHash,
-            'generated_at'   => $ts,
+            'issue_date' => $fechaExp,
+            'invoice_type' => $tipoFactura,
+            'total_tax' => $cuotaTotal,
+            'total_amount' => $importeTotal,
+            'previous_hash' => $prevHash,
+            'generated_at' => $ts,
         ])['hash'];
     }
 
     /**
      * WHO is filing this registro: the invoice's own issuer, then config.
      *
-     * config('verifactu.issuer') is a process-wide setting; an invoice is a
-     * record of something that already happened. When an outlet's NIF changes,
-     * or one worker serves several obligados, config holds today's answer while
-     * the stored huella was built from the NIF the invoice carries — so a retry
-     * would file a fingerprint that cannot be reproduced from the record, and
-     * the Cabecera would name an obligado that never issued the document.
+     * The per-instance issuer (upstream v2.0.0's 5th constructor argument) is
+     * the baseline: one client per obligado, which is what a multi-tenant host
+     * wants. The invoice may still override it, and that is not a duplicate of
+     * the same idea.
      *
-     * The getters are optional (method_exists), and an Eloquent
-     * issuer_tax_id / issuer_name attribute is read too, so an application that
-     * exposes neither keeps getting exactly what config says. An empty value
-     * never overrides config.
+     * An instance is configured with today's answer; an invoice is a record of
+     * something that already happened. One queue worker serves every outlet, so
+     * the client it builds may be configured for a different obligado than the
+     * invoice it is filing — and after an outlet's NIF changes, the stored
+     * huella was built from the OLD NIF, so a retry under the new one files a
+     * fingerprint that cannot be reproduced from the record.
+     *
+     * Order: the invoice's own issuer, then the instance's, then config. The
+     * getters are optional (method_exists) and an Eloquent issuer_tax_id /
+     * issuer_name attribute is read too, so an application that exposes neither
+     * gets exactly what it configured. An empty value never overrides.
      *
      * @return array{name: string, vat: string}
      */
     private function resolveIssuer(VeriFactuInvoice $invoice): array
     {
-        $configured = config('verifactu.issuer');
-
         return [
             'name' => $this->issuerField($invoice, 'getIssuerName', 'issuer_name')
-                ?? (string) ($configured['name'] ?? ''),
+                ?? (string) ($this->issuer['name'] ?? ''),
             'vat' => $this->issuerField($invoice, 'getIssuerTaxId', 'issuer_tax_id')
-                ?? (string) ($configured['vat'] ?? ''),
+                ?? (string) ($this->issuer['vat'] ?? ''),
         ];
     }
 
@@ -173,7 +210,7 @@ class AeatClient
      *
      * Every argument after $previous is optional and defaults to the behaviour
      * this method has always had, so an existing `sendInvoice($invoice, $prev)`
-     * call is untouched.
+     * — or `sendInvoice($invoice, $prev, $record)` — call is untouched.
      *
      * ── SUBSANACIÓN ──────────────────────────────────────────────────────────
      *
@@ -182,12 +219,12 @@ class AeatClient
      * IDFactura rather than a new invoice number. That record is an ordinary
      * RegistroAlta carrying <Subsanacion>S</Subsanacion>:
      *
-     *     $client->sendInvoice($invoice, $previous, subsanacion: true, rechazoPrevio: 'X');
+     *     $client->sendInvoice($invoice, $previous, $record, subsanacion: true, rechazoPrevio: 'X');
      *
      * The subsanación is a NEW entry in the chain, not a rewrite of the old
      * one: it gets its own FechaHoraHusoGenRegistro, its own huella, and an
      * Encadenamiento pointing at whatever the chain tip is NOW. Pass that tip
-     * as $previous and the freshly computed fingerprint as $huella — the
+     * as $previous and the freshly computed fingerprint in $record — the
      * package will not re-hash behind the caller's back.
      *
      * $rechazoPrevio may only be sent alongside subsanacion: true; AEAT rejects
@@ -196,39 +233,34 @@ class AeatClient
      *
      * @param VeriFactuInvoice $invoice
      * @param array|null $previous Previous registro for chaining: ['hash','number','date' (d-m-Y)]
+     * @param array|null $record Precomputed registration record data:
+     *        ['hash' => string, 'generated_at' => string (ISO 8601)].
+     *        REQUIRED when the host application persists its own hash chain at
+     *        issuance time: the submitted Huella and FechaHoraHusoGenRegistro
+     *        must be exactly the ones stored in the chain, never recomputed at
+     *        submission time (async submission would break chain integrity).
      * @param bool $subsanacion Emit <Subsanacion>S</Subsanacion> — this re-files a rejected registro
      * @param string|null $rechazoPrevio <RechazoPrevio>, only with $subsanacion
-     * @param string|null $huella File this fingerprint verbatim instead of recomputing one
-     * @param string|null $generatedAt Replay this FechaHoraHusoGenRegistro (ISO-8601) instead of now()
      * @return array
      */
     public function sendInvoice(
         VeriFactuInvoice $invoice,
         ?array $previous = null,
+        ?array $record = null,
         bool $subsanacion = false,
-        ?string $rechazoPrevio = null,
-        ?string $huella = null,
-        ?string $generatedAt = null
+        ?string $rechazoPrevio = null
     ): array {
         $this->assertVerifactuMode();
 
         $rechazoPrevio = $this->normaliseRechazoPrevio($rechazoPrevio, $subsanacion, 'RegistroAlta');
 
-        // 1. Obtener datos del emisor — de la propia factura primero.
+        // 1. Obtener datos del emisor — de la propia factura, si la lleva.
         $issuer = $this->resolveIssuer($invoice);
         $issuerName = $issuer['name'];
         $issuerVat = $issuer['vat'];
 
         // 2. Preparar datos comunes
-        //
-        // $generatedAt lets the caller replay the exact timestamp its stored
-        // huella was built from. Without it the only way to make the two agree
-        // was to freeze the global clock around this call
-        // (Carbon::setTestNow()), which is a heavy thing to do inside a queue
-        // worker that is also serving other jobs.
-        $ts = $generatedAt !== null && trim($generatedAt) !== ''
-            ? trim($generatedAt)
-            : \Carbon\Carbon::now('UTC')->format('c');
+        $ts = $this->recordField($record, 'generated_at') ?? \Carbon\Carbon::now('UTC')->format('c');
         $numSerie = (string) $invoice->getInvoiceNumber();
         $fechaExp = $invoice->getIssueDate()->format('d-m-Y');
         $tipoFactura = $invoice->getInvoiceType();
@@ -236,15 +268,13 @@ class AeatClient
         $importeTotal = sprintf('%.2f', (float) $invoice->getTotalAmount());
         $prevHash = $previous['hash'] ?? $invoice->getPreviousHash() ?? '';
 
-        // 3. Generar huella — o usar la que el llamante ya almacenó.
+        // 3. Huella: la precalculada de la cadena del host si existe; si no, generarla.
         //
         // The stored huella is the value chained into the NEXT record and, once
         // filed, the one AEAT holds. Recomputing it here and quietly filing a
-        // different number is how a chain forks, so a caller that has one hands
-        // it over and the package files THAT, verbatim.
-        $huella = $huella !== null && trim($huella) !== ''
-            ? strtoupper(trim($huella))
-            : $this->buildFingerprint(
+        // different number is how a chain forks.
+        $huella = $this->recordField($record, 'hash')
+            ?? $this->buildFingerprint(
                 $issuerVat,
                 $numSerie,
                 $fechaExp,
@@ -328,14 +358,13 @@ class AeatClient
      * is defaulted; the element is omitted unless asked for.
      *
      * The anulación is its own link in the chain with its own huella. Pass the
-     * stored one as $huella; when none is given it is computed with
-     * HashHelper::generateCancellationHash(), which hashes the *Anulada field
-     * names, not the alta's.
+     * stored one in $record, the same shape sendInvoice() takes; when none is
+     * given it is computed with HashHelper::generateCancellationHash(), which
+     * hashes the *Anulada field names, not the alta's.
      *
      * @param VeriFactuInvoice $invoice The invoice being annulled
      * @param array|null $previous Previous registro for chaining: ['hash','number','date' (d-m-Y)]
-     * @param string|null $huella File this fingerprint verbatim instead of computing one
-     * @param string|null $generatedAt Replay this FechaHoraHusoGenRegistro instead of now()
+     * @param array|null $record ['hash' => string, 'generated_at' => string (ISO 8601)]
      * @param bool $sinRegistroPrevio The alta was never registered at AEAT
      * @param string|null $rechazoPrevio 'S' when this anulación itself was rejected before
      * @return array
@@ -343,8 +372,7 @@ class AeatClient
     public function sendCancellation(
         VeriFactuInvoice $invoice,
         ?array $previous = null,
-        ?string $huella = null,
-        ?string $generatedAt = null,
+        ?array $record = null,
         bool $sinRegistroPrevio = false,
         ?string $rechazoPrevio = null
     ): array {
@@ -356,17 +384,14 @@ class AeatClient
         $issuerName = $issuer['name'];
         $issuerVat = $issuer['vat'];
 
-        $ts = $generatedAt !== null && trim($generatedAt) !== ''
-            ? trim($generatedAt)
-            : \Carbon\Carbon::now('UTC')->format('c');
+        $ts = $this->recordField($record, 'generated_at') ?? \Carbon\Carbon::now('UTC')->format('c');
 
         $numSerie = (string) $invoice->getInvoiceNumber();
         $fechaExp = $invoice->getIssueDate()->format('d-m-Y');
         $prevHash = $previous['hash'] ?? '';
 
-        $huella = $huella !== null && trim($huella) !== ''
-            ? strtoupper(trim($huella))
-            : HashHelper::generateCancellationHash([
+        $huella = $this->recordField($record, 'hash')
+            ?? HashHelper::generateCancellationHash([
                 'issuer_tax_id' => $issuerVat,
                 'invoice_number' => $numSerie,
                 'issue_date' => $fechaExp,
@@ -423,12 +448,23 @@ class AeatClient
 
     private function buildHeader(string $issuerName, string $issuerVat): array
     {
-        return [
+        $cabecera = [
             'ObligadoEmision' => [
                 'NombreRazon' => $issuerName,
                 'NIF' => $issuerVat,
             ],
         ];
+
+        // Colaborador social: la plataforma remite en nombre del obligado con
+        // su propio certificado; AEAT exige identificar al representante.
+        if ($this->representative !== null) {
+            $cabecera['Representante'] = [
+                'NombreRazon' => $this->representative['name'] ?? '',
+                'NIF' => $this->representative['vat'] ?? '',
+            ];
+        }
+
+        return $cabecera;
     }
 
     /**
@@ -951,6 +987,39 @@ class AeatClient
         }
 
         return $registroAlta;
+    }
+
+    /**
+     * One entry of upstream's $record, trimmed, or null when it says nothing.
+     *
+     * Returned VERBATIM — deliberately not upper-cased. AEAT's huella is
+     * upper-case hex, but the value the host stored is also the one it will
+     * hand the NEXT registro as RegistroAnterior.Huella, so normalising it here
+     * and nowhere else would make this record and its successor disagree. A
+     * value that will not verify is reported instead of quietly rewritten.
+     */
+    private function recordField(?array $record, string $key): ?string
+    {
+        if ($record === null) {
+            return null;
+        }
+
+        $value = trim((string) ($record[$key] ?? ''));
+
+        if ($value === '') {
+            return null;
+        }
+
+        if ($key === 'hash' && preg_match('/^[0-9A-F]{64}$/', $value) !== 1) {
+            Log::warning('VeriFactu: the supplied huella is not upper-case SHA-256 hex; '
+                . 'AEAT rebuilds the fingerprint from the submitted fields and will not '
+                . 'match it. Filing it as given rather than rewriting it, because the '
+                . 'next registro chains to this same stored value.', [
+                    'huella' => $value,
+                ]);
+        }
+
+        return $value;
     }
 
     /**

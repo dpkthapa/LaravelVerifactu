@@ -35,7 +35,13 @@ abstract class EnvelopeTestCase extends TestCase
 
     protected function client(): AeatClient
     {
-        return new class ('/dev/null', null, false, true) extends AeatClient {
+        return $this->clientWith();
+    }
+
+    /** The same capturing client, with upstream's per-instance issuer/representative. */
+    protected function clientWith(?array $issuer = null, ?array $representative = null): AeatClient
+    {
+        return new class ('/dev/null', null, false, true, $issuer, $representative) extends AeatClient {
             public array $body = [];
 
             protected function performSoapCall(

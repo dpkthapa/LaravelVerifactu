@@ -113,10 +113,9 @@ class SubsanacionEnvelopeTest extends EnvelopeTestCase
             $this->client()->sendInvoice(
                 $this->legacyInvoice([$this->legacyBreakdown()]),
                 $previous,
+                record: ['hash' => str_repeat('B', 64), 'generated_at' => '2026-09-20T11:22:33+00:00'],
                 subsanacion: true,
-                rechazoPrevio: 'X',
-                huella: str_repeat('b', 64),
-                generatedAt: '2026-09-20T11:22:33+00:00'
+                rechazoPrevio: 'X'
             )
         );
 
@@ -139,7 +138,7 @@ class SubsanacionEnvelopeTest extends EnvelopeTestCase
             $this->client()->sendInvoice(
                 $this->legacyInvoice([$this->legacyBreakdown()]),
                 null,
-                generatedAt: $ts
+                record: ['generated_at' => $ts]
             )
         );
 
@@ -169,13 +168,13 @@ class SubsanacionEnvelopeTest extends EnvelopeTestCase
         $clean = $this->registro($this->client()->sendInvoice(
             $this->issuerAwareInvoice([$this->legacyBreakdown()], 'A99999999', 'Outlet SL'),
             null,
-            generatedAt: $ts
+            record: ['generated_at' => $ts]
         ))['Huella'];
 
         $spaced = $this->registro($this->client()->sendInvoice(
             $this->issuerAwareInvoice([$this->legacyBreakdown()], ' A99999999 ', 'Outlet SL'),
             null,
-            generatedAt: $ts
+            record: ['generated_at' => $ts]
         ))['Huella'];
 
         $this->assertSame($clean, $spaced);
