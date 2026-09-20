@@ -64,6 +64,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Logging
+    |--------------------------------------------------------------------------
+    |
+    | The SOAP request and response carry the customer's name and tax id, the
+    | line breakdown and the amounts. They used to be written at INFO level on
+    | every successful send, which put all of it into laravel.log — a file with
+    | no retention policy and none of the access controls the invoices table
+    | has.
+    |
+    | They now go to DEBUG, masked. Only the identifying elements are masked
+    | (NombreRazon, NIF, ID); amounts, dates, the huella and the chaining stay
+    | readable, because those are what anyone is reading the XML to debug.
+    |
+    | - xml:    false suppresses the payload entirely, at any log level.
+    | - redact: false logs it verbatim. A deliberate choice, not a default.
+    |
+    */
+    'logging' => [
+        'xml' => env('VERIFACTU_LOG_XML', true),
+        'redact' => env('VERIFACTU_LOG_REDACT', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | AEAT Connection Settings
     |--------------------------------------------------------------------------
     |
