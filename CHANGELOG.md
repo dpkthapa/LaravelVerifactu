@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - Preparing for v2.0.0
 
+### Added — Subsanación, anulación y desglose completo
+
+- `AeatClient::sendInvoice()` acepta `subsanacion:` y `rechazoPrevio:` y emite
+  `<Subsanacion>` / `<RechazoPrevio>`. Sin ellos, un registro rechazado por AEAT
+  (`EstadoRegistro = "Incorrecto"`) no se podía corregir por ningún medio que
+  ofreciera el paquete.
+- `AeatClient::sendCancellation()` construye el `RegistroAnulacion`, incluido
+  `<SinRegistroPrevio>`, necesario cuando el alta que se anula nunca llegó a
+  registrarse. Nombre deliberado: `cancelInvoice()` está ocupado en integraciones
+  que ya extienden el cliente.
+- `HashHelper::generateCancellationHash()` — la anulación no hashea los mismos
+  campos que el alta.
+- `<TipoRecargoEquivalencia>` / `<CuotaRecargoEquivalencia>` por fila. Además de
+  la aritmética, arregla la identidad de línea: AEAT distingue una línea por
+  `(Impuesto, ClaveRegimen, CalificacionOperacion, TipoImpositivo,
+  TipoRecargoEquivalencia)`.
+- `<OperacionExenta>` (E1..E6) en lugar de `CalificacionOperacion` para filas
+  exentas, y sin `TipoImpositivo` ni `CuotaRepercutida` en filas exentas o no
+  sujetas (N1/N2).
+- `VeriFactuBreakdownExtras` y el enum `ExemptionCause`. Ambos opcionales y
+  leídos con `method_exists()`.
+- `sendInvoice()` / `sendCancellation()` aceptan `huella:` y `generatedAt:` para
+  presentar la huella ya almacenada en lugar de recalcular una distinta.
+- Conciliación de `ImporteTotal` y `CuotaTotal` contra el desglose (aviso por
+  log, nunca corrección silenciosa: son entradas de la huella).
+- `verifactu.logging.{xml,redact}`.
+- `phpunit.xml` y 36 pruebas nuevas del sobre.
+
+### Fixed
+
+- **BC**: `getCorrectedBaseAmount()`, `getCorrectedTaxAmount()` y
+  `getCorrectedSurchargeAmount()` dejan de ser miembros obligatorios de
+  `VeriFactuInvoice`. Añadirlos rompió toda implementación existente del
+  contrato, incluidas las pruebas del propio paquete.
+- `VeriFactuBreakdown::getTaxRate()` pasa a `float|string`: un cast
+  `decimal:2` de Eloquent devuelve string y no podía satisfacer `float`.
+- `buildFingerprint()` delega en `HashHelper`, que hace `trim()`. Un valor con un
+  espacio de más producía una huella en el registro y otra en el envío, y el
+  registro siguiente encadenaba con la primera.
+- El emisor sale de la propia factura cuando la lleva
+  (`getIssuerTaxId()` / `issuer_tax_id`), no de `config('verifactu.issuer')`, que
+  es la respuesta de hoy y no la que se usó para calcular la huella almacenada.
+- El XML completo de petición y respuesta dejaba de escribirse en `laravel.log`
+  a nivel `info` en cada envío: ahora `debug`, y enmascarado.
+- El modo NO VERIFACTU (requerimiento) lanza excepción en lugar de enviar un
+  sobre sin `RemisionRequerimiento`, `RefRequerimiento` ni firma XAdES.
+- La consulta a `sys_config` (tabla que el paquete no distribuye) va protegida;
+  antes lanzaba `QueryException` desde dentro del constructor del sobre en
+  cualquier instalación que no la tuviera.
+
+
 ### Added
 
 #### Core Features (Issue #6 + PR #8)

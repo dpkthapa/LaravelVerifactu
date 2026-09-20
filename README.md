@@ -390,6 +390,8 @@ $invoice = Invoice::create([
 
 > **Nota:** Para facturas rectificativas y sustitutivas, si implementas los campos y relaciones adicionales (como facturas rectificadas/sustituidas, tipo de rectificación, importe de rectificación), deberás añadirlos en el array de creación.
 
+> **Importante:** `is_subsanacion` y los campos que lo acompañan son **almacenamiento**, no envío. El elemento `<Subsanacion>` del `RegistroAlta` se emite pasando `subsanacion: true` a `AeatClient::sendInvoice()`. Véase [Subsanación, anulación y desglose avanzado](#subsanación-anulación-y-desglose-avanzado).
+
 ---
 
 ## Campos avanzados del modelo Invoice
@@ -725,6 +727,133 @@ $subsanacionInvoice = Invoice::create([
     // ... otros campos corregidos
 ]);
 ```
+
+---
+
+## Subsanación, anulación y desglose avanzado
+
+Todo lo de esta sección es **opcional**. Una llamada `sendInvoice($invoice, $previous)`
+existente no cambia ni un byte del XML que envía.
+
+### Subsanación: refiling a registro AEAT rejected
+
+Cuando AEAT responde `EstadoRegistro = "Incorrecto"` el registro **no ha quedado
+registrado**. El RD 1007/2023 art. 8 espera un registro corregido con el **mismo
+IDFactura**, no una factura nueva:
+
+```php
+$result = $aeatClient->sendInvoice(
+    $invoice,
+    $previous,                 // la punta ACTUAL de la cadena
+    subsanacion: true,         // <Subsanacion>S</Subsanacion>
+    rechazoPrevio: 'X',        // <RechazoPrevio>
+    huella: $invoice->hash,    // la huella recalculada y almacenada
+    generatedAt: $invoice->hash_generated_at
+);
+```
+
+Una subsanación es un **eslabón nuevo de la cadena**: tiene su propio
+`FechaHoraHusoGenRegistro`, su propia huella y un `Encadenamiento` que apunta a
+la punta de la cadena *en este momento*. El paquete no vuelve a calcular la
+huella por su cuenta si se le pasa una: la que se almacena y la que se envía
+tienen que ser la misma o la cadena se bifurca.
+
+`rechazoPrevio` sólo puede acompañar a `subsanacion: true`; en otro caso se
+lanza una `VeriFactuException`. Valores aceptados: `'N'`, `'S'`, `'X'`.
+**Verifica el código contra la tabla de validaciones vigente de AEAT antes de
+usarlo en producción** — el paquete no elige ninguno por ti ni lo deduce de la
+factura.
+
+### Anulación, y `SinRegistroPrevio`
+
+```php
+$result = $aeatClient->sendCancellation(
+    $invoice,
+    $previous,
+    huella: $invoice->cancel_hash,
+    generatedAt: $invoice->cancel_generated_at,
+    sinRegistroPrevio: true
+);
+```
+
+`SinRegistroPrevio` declara que **el alta que se anula nunca llegó a
+registrarse** en AEAT. Sin él, AEAT busca el alta, no la encuentra y rechaza la
+anulación por referirse a algo que no existe.
+
+Hay que ponerlo cuando el alta no se llegó a presentar con éxito:
+
+- el envío del alta falló a nivel de transporte y nunca se reintentó;
+- AEAT respondió `EstadoRegistro = "Incorrecto"` al alta (**no** está registrada,
+  diga lo que diga la columna de estado local);
+- la factura se emitió en modo offline y se anuló antes de que saliera el alta.
+
+Déjalo fuera cuando AEAT aceptó el alta — `"Correcto"`, o
+`"AceptadoConErrores"`, que **es** una aceptación. En la práctica: ¿volvió el
+alta con CSV?
+
+El paquete no puede decidirlo: no sabe qué contestó AEAT a un envío que no hizo.
+
+> `sendCancellation()`, no `cancelInvoice()`: hay integraciones que ya extienden
+> `AeatClient` con su propio `cancelInvoice(SuPropiaFactura $factura)`. Un método
+> padre que aceptara `VeriFactuInvoice` haría que ese override estrechara el tipo
+> del parámetro, lo que PHP rechaza — la aplicación dejaría de cargar al
+> actualizar. Los dos nombres conviven.
+
+### Recargo de equivalencia
+
+Una fila que declare `getSurchargeRate()` / `getSurchargeAmount()` (véase
+`VeriFactuBreakdownExtras`) emite `TipoRecargoEquivalencia` y
+`CuotaRecargoEquivalencia`. Una que no los declare, o que devuelva cero, produce
+exactamente el mismo XML de siempre.
+
+No es sólo aritmética: AEAT identifica una línea del desglose por
+`(Impuesto, ClaveRegimen, CalificacionOperacion, TipoImpositivo,
+TipoRecargoEquivalencia)`, así que dos filas con el mismo tipo y distinto
+recargo se convertían en **dos líneas idénticas**.
+
+`ImporteTotal` debe ser `Σ(BaseImponibleOimporteNoSujeto + CuotaRepercutida +
+CuotaRecargoEquivalencia)`. El cliente **no** lo recalcula — es una entrada de la
+huella que ya calculaste y encadenaste — pero sí lo concilia con las filas y
+avisa por log cuando no cuadra.
+
+### Operaciones exentas y no sujetas
+
+`CalificacionOperacion` y `OperacionExenta` ocupan el mismo hueco del esquema y
+son **excluyentes**. Los códigos `E1`..`E6` no son valores válidos de
+`CalificacionOperacion`, así que una entrega exenta se declaraba como una
+entrega sujeta al 0%.
+
+Devuelve el código E por `getOperationType()` (o por `getExemptionCause()`, que
+tiene prioridad) y la fila sale así:
+
+```xml
+<DetalleDesglose>
+  <Impuesto>01</Impuesto>
+  <ClaveRegimen>01</ClaveRegimen>
+  <OperacionExenta>E1</OperacionExenta>
+  <BaseImponibleOimporteNoSujeto>30.00</BaseImponibleOimporteNoSujeto>
+</DetalleDesglose>
+```
+
+Sin `TipoImpositivo` y sin `CuotaRepercutida`: una entrega exenta no lleva tipo
+ni cuota, y poner `0.00` no es neutro — afirma una entrega sujeta que casualmente
+no soporta impuesto. Lo mismo para `N1` / `N2`, que sí conservan
+`CalificacionOperacion`.
+
+> VeriFactu **no tiene** un elemento `CausaExencion`. Ese nombre es de SII, dentro
+> de un bloque `DetalleExenta` que aquí tampoco existe: la causa **es** el código
+> `E1`..`E6` que lleva `OperacionExenta`.
+
+### Modo NO VERIFACTU (requerimiento)
+
+**No implementado.** Antes cambiaba el endpoint SOAP y nada más, así que el sobre
+que salía hacia `RequerimientoSOAP` era uno de VeriFactu corriente: sin
+`RemisionRequerimiento`, sin `RefRequerimiento` y sin la firma XAdES-EPES sobre
+cada registro, que es justamente lo que define el régimen. AEAT lo rechazaba
+mientras el operador creía estar presentando bajo requerimiento.
+
+Ahora lanza una `VeriFactuException` al enviar. Sigue sin estar implementado;
+ahora lo dice.
 
 ---
 
