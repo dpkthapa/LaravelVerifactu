@@ -42,6 +42,47 @@ class HashHelper
         return ['hash' => $hash, 'inputString' => $inputString];
     }
 
+    private static array $cancellationRequiredFields = [
+        'issuer_tax_id',
+        'invoice_number',
+        'issue_date',
+        'previous_hash',
+        'generated_at',
+    ];
+
+    /**
+     * The huella of a RegistroAnulacion.
+     *
+     * A cancellation hashes a DIFFERENT field set from an alta: the invoice is
+     * named with the *Anulada element names, and there is no TipoFactura, no
+     * CuotaTotal and no ImporteTotal — an anulación states that a record is
+     * void, not what it was worth. Reusing generateInvoiceHash() here produces
+     * a fingerprint AEAT cannot reproduce.
+     *
+     * `issue_date` must be the same d-m-Y string that goes into
+     * FechaExpedicionFacturaAnulada; AEAT rebuilds the fingerprint from the
+     * submitted fields, so any other format fails verification silently.
+     *
+     * @param array $data ['issuer_tax_id', 'invoice_number', 'issue_date',
+     *                     'previous_hash', 'generated_at']
+     * @return array ['hash' => string, 'inputString' => string]
+     */
+    public static function generateCancellationHash(array $data): array
+    {
+        self::validateData(self::$cancellationRequiredFields, $data);
+
+        $inputString = self::field('IDEmisorFacturaAnulada', $data['issuer_tax_id']);
+        $inputString .= self::field('NumSerieFacturaAnulada', $data['invoice_number']);
+        $inputString .= self::field('FechaExpedicionFacturaAnulada', $data['issue_date']);
+        $inputString .= self::field('Huella', $data['previous_hash']);
+        $inputString .= self::field('FechaHoraHusoGenRegistro', $data['generated_at'], false);
+
+        return [
+            'hash' => strtoupper(hash('sha256', $inputString, false)),
+            'inputString' => $inputString,
+        ];
+    }
+
     private static function validateData(array $requiredFields, array $data): void
     {
         $missing = array_diff($requiredFields, array_keys($data));
