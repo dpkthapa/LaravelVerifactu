@@ -123,30 +123,42 @@ interface VeriFactuInvoice
      */
     public function getExternalReference(): ?string;
 
-    /**
-     * Get the corrected base amount (for substitution corrective invoices)
-     * Required when TipoRectificativa = "S"
-     * This is the original base amount from the invoice being corrected
-     *
-     * @return float|null
-     */
-    public function getCorrectedBaseAmount(): ?float;
-
-    /**
-     * Get the corrected tax amount (for substitution corrective invoices)
-     * Required when TipoRectificativa = "S"
-     * This is the original tax amount from the invoice being corrected
-     *
-     * @return float|null
-     */
-    public function getCorrectedTaxAmount(): ?float;
-
-    /**
-     * Get the corrected surcharge amount (for substitution corrective invoices)
-     * Optional field for AEAT ImporteRectificacion block
-     * This is the original surcharge amount from the invoice being corrected
-     *
-     * @return float|null
-     */
-    public function getCorrectedSurchargeAmount(): ?float;
+    /*
+    |--------------------------------------------------------------------------
+    | OPTIONAL, duck-typed extensions — deliberately NOT declared here
+    |--------------------------------------------------------------------------
+    |
+    | Adding a method to a published interface is a breaking change: every
+    | application that already implements VeriFactuInvoice stops loading with a
+    | fatal until it grows the new method. That happened once already — the
+    | ImporteRectificacion work added getCorrectedBaseAmount(),
+    | getCorrectedTaxAmount() and getCorrectedSurchargeAmount() as REQUIRED
+    | members, and this package's own test suite has not been able to construct
+    | a VeriFactuInvoice since.
+    |
+    | So everything added after 1.0 is read with method_exists() instead. An
+    | implementation that offers the method gets the feature; one that does not
+    | keeps behaving exactly as it did. The optional members AeatClient looks
+    | for are:
+    |
+    |   getIssuerTaxId(): ?string
+    |       The NIF this invoice was issued under. Overrides
+    |       config('verifactu.issuer.vat') for the Cabecera, the IDFactura and
+    |       — critically — the huella, so a retry after the configured NIF has
+    |       changed cannot file a fingerprint that no longer matches the stored
+    |       one. An Eloquent `issuer_tax_id` attribute is read too.
+    |
+    |   getIssuerName(): ?string
+    |       Likewise for NombreRazon / NombreRazonEmisor. Eloquent attribute:
+    |       `issuer_name`.
+    |
+    |   getRectifiedInvoices(): array|Collection
+    |       <FacturasRectificadas>. See AeatClient::buildRectifiedInvoices().
+    |
+    |   getCorrectedBaseAmount(): ?float
+    |   getCorrectedTaxAmount(): ?float
+    |   getCorrectedSurchargeAmount(): ?float
+    |       <ImporteRectificacion>, required by AEAT when TipoRectificativa = "S".
+    |       Both of the first two must be present or the block is omitted.
+    */
 }

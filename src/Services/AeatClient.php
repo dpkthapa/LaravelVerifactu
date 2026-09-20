@@ -585,6 +585,17 @@ class AeatClient
      */
     private function buildImporteRectificacion(VeriFactuInvoice $invoice): ?array
     {
+        // Duck-typed, not contract members. Declaring them on VeriFactuInvoice
+        // fatalled every application that had already implemented the interface
+        // — including this package's own test suite, which has not been able to
+        // build a VeriFactuInvoice since. An implementation that offers them
+        // gets ImporteRectificacion; one that does not simply omits the block,
+        // which is what it did before the feature existed.
+        if (!method_exists($invoice, 'getCorrectedBaseAmount')
+            || !method_exists($invoice, 'getCorrectedTaxAmount')) {
+            return null;
+        }
+
         $baseRectificada = $invoice->getCorrectedBaseAmount();
         $cuotaRectificada = $invoice->getCorrectedTaxAmount();
 
@@ -599,7 +610,9 @@ class AeatClient
         ];
 
         // Add optional surcharge if present
-        $cuotaRecargo = $invoice->getCorrectedSurchargeAmount();
+        $cuotaRecargo = method_exists($invoice, 'getCorrectedSurchargeAmount')
+            ? $invoice->getCorrectedSurchargeAmount()
+            : null;
         if ($cuotaRecargo !== null) {
             $importe['CuotaRecargoRectificado'] = sprintf('%.2f', $cuotaRecargo);
         }
